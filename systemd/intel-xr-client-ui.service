@@ -1,0 +1,12 @@
+[Unit]
+Description=Intel XR client approval UI
+After=intel-xr-monado.service
+Requires=intel-xr-monado.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /ai/intel-xr-prototype/src/Monado-ALVR/scripts/xr-client-ui.py
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
