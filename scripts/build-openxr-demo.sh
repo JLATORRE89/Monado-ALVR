@@ -4,6 +4,8 @@ ROOT="${INTEL_XR_ROOT:-/ai/intel-xr-prototype}"
 CFG="$ROOT/src/Monado-ALVR/config/xr-build.json"
 SDK="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["demo"]["openxr_sdk_source"])' "$CFG")"
 BUILD="$ROOT/build/openxr-demo"
+# Always reconfigure cleanly: this is a disposable diagnostic build.
+rm -rf "$BUILD"
 [[ -f "$SDK/CMakeLists.txt" ]] || { echo "ERROR: OpenXR-SDK-Source missing at $SDK"; exit 1; }
 cmake -S "$SDK" -B "$BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
