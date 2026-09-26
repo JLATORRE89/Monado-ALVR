@@ -10,6 +10,8 @@ Type=simple
 StandardInput=null
 Environment=XRT_LOG=debug
 Environment=XRT_NO_STDIN=true
+# TEST ONLY: permit trusted legacy ALVR clients past protocol-ID mismatch.
+Environment=ALVR_LEGACY_PROTOCOL_TEST=1
 ExecStart=/ai/intel-xr-prototype/build/monado-alvr/src/xrt/targets/service/monado-service
 Restart=on-failure
 RestartSec=5
