@@ -61,19 +61,6 @@ echo "=== ALVR generated ABI ==="
 grep -nE 'ALVR_EVENT_(VIEWS_PARAMS|LOCAL_VIEW_PARAMS)|views_params|local_view_params' \
     "$ALVR/build/alvr_server_core/alvr_server_core.h" || true
 
-# The pinned ALVR monado branch generates LOCAL_VIEW_PARAMS, while the
-# historical alvr_render source names this event VIEWS_PARAMS. Keep the
-# compatibility shim local to the companion checkout.
-if grep -q 'ALVR_EVENT_LOCAL_VIEW_PARAMS' "$ALVR/build/alvr_server_core/alvr_server_core.h"; then
-    echo
-    echo "=== Apply ALVR ABI compatibility shim to alvr_render ==="
-    git -C "$ALVR_RENDER" reset --hard "$ALVR_RENDER_PIN"
-    grep -RIl 'ALVR_EVENT_VIEWS_PARAMS' "$ALVR_RENDER/src" 2>/dev/null | \
-        xargs -r sed -i 's/ALVR_EVENT_VIEWS_PARAMS/ALVR_EVENT_LOCAL_VIEW_PARAMS/g'
-    grep -RIl 'views_params' "$ALVR_RENDER/src" 2>/dev/null | \
-        xargs -r sed -i 's/views_params/local_view_params/g'
-fi
-
 echo
 echo "=== Verify ABI compatibility ==="
 if grep -RniE 'ALVR_EVENT_VIEWS_PARAMS|views_params' \
