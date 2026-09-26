@@ -77,20 +77,23 @@ if proc.poll() is not None:
     raise SystemExit(f"ERROR: video test exited early ({proc.returncode}). Log: {out}")
 note(f"[OpenXR test] running pid={proc.pid}")
 
-# Give the stream a moment to settle, then capture exactly what Android is rendering.
-# screencap is best-effort on Quest: protected/compositor-only XR layers may appear black.
+# Give the stream a moment to settle, then capture the Quest display.
+# Save on-device first; binary exec-out can be unreliable on some Quest/ADB builds.
 time.sleep(2)
-shot=run([adb,"exec-out","screencap","-p"])
-if shot.returncode==0 and shot.stdout:
-    # run() is text-oriented, so redo screencap in binary mode for a valid PNG.
-    bp=subprocess.run([adb,"exec-out","screencap","-p"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
-    if bp.returncode==0 and bp.stdout.startswith(b"\\x89PNG"):
-        screenshot.write_bytes(bp.stdout)
-        note(f"[Quest screenshot] {screenshot}")
+remote_shot="/sdcard/intel-xr-diagnostic.png"
+cmd([adb,"shell","rm","-f",remote_shot])
+cap=run([adb,"shell","screencap","-p",remote_shot])
+pull=run([adb,"pull",remote_shot,str(screenshot)]) if cap.returncode==0 else cap
+cmd([adb,"shell","rm","-f",remote_shot])
+if pull.returncode==0 and screenshot.exists():
+    data=screenshot.read_bytes()
+    if data.startswith(b"\\x89PNG") and len(data)>100:
+        note(f"[Quest screenshot] {screenshot} ({len(data)} bytes)")
     else:
-        note("[Quest screenshot] FAILED (no valid PNG returned)")
+        note(f"[Quest screenshot] FAILED (invalid PNG, {len(data)} bytes)")
+        screenshot.unlink(missing_ok=True)
 else:
-    note("[Quest screenshot] FAILED (screencap unavailable)")
+    note("[Quest screenshot] FAILED (Quest screencap/pull failed)")
 
 # Capture outbound ALVR traffic. sudo -n intentionally avoids hanging for a password.
 iface=os.getenv("XR_WIFI_DEV","wlx9cefd5fa3634")
