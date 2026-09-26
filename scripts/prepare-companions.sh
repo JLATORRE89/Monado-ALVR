@@ -56,6 +56,42 @@ git -C "$ALVR_RENDER" fetch origin
 git -C "$ALVR_RENDER" checkout --detach "$ALVR_RENDER_REV"
 git -C "$ALVR_RENDER" reset --hard "$ALVR_RENDER_REV"
 
+echo "=== Apply XR legacy discovery compatibility ==="
+python3 - "$ALVR/alvr/server_core/src/sockets.rs" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text()
+s=s.replace('use std::{collections::HashMap, net::IpAddr};','use std::{collections::HashMap, net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket}};')
+s=s.replace('pub struct WelcomeSocket {\n    mdns_receiver: Receiver<ServiceEvent>,\n}','pub struct WelcomeSocket {\n    mdns_receiver: Receiver<ServiceEvent>,\n    legacy_socket: Option<UdpSocket>,\n}')
+s=s.replace('        Ok(Self { mdns_receiver })','''        let legacy_socket = UdpSocket::bind(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 9943))
+            .map(|socket| { socket.set_nonblocking(true).ok(); socket })
+            .ok();
+        Ok(Self { mdns_receiver, legacy_socket })''')
+needle='''        Ok(clients)
+    }
+}'''
+replacement='''        if let Some(socket) = &self.legacy_socket {
+            let mut buf = [0u8; 2048];
+            loop {
+                match socket.recv_from(&mut buf) {
+                    Ok((size, peer)) if size > 0 => {
+                        clients.entry(format!("legacy-{}", peer.ip())).or_insert(peer.ip());
+                    }
+                    Ok(_) => (),
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(e) => { warn!("Legacy UDP discovery receive error: {e}"); break; }
+                }
+            }
+        }
+        Ok(clients)
+    }
+}'''
+if 'legacy_socket: Option<UdpSocket>' not in s:
+    if needle not in s: raise SystemExit("legacy insertion point missing")
+    s=s.replace(needle,replacement,1)
+p.write_text(s)
+PY
+
 echo "=== Apply Monado/ALVR ABI compatibility ==="
 for f in "$ALVR_RENDER/src/Encoder.cpp" "$ALVR_RENDER/src/EventManager.hpp"; do
     sed -i       -e 's/ALVR_EVENT_VIEWS_PARAMS/ALVR_EVENT_LOCAL_VIEW_PARAMS/g'       -e 's/event\.views_params/event.local_view_params/g'       "$f"
