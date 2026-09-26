@@ -2,6 +2,10 @@
 set -Eeuo pipefail
 
 ROOT="${INTEL_XR_ROOT:-/ai/intel-xr-prototype}"
+LOGDIR="$ROOT/logs"
+mkdir -p "$LOGDIR"
+LOG="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_prepare-companions.log"
+exec > >(tee "$LOG") 2>&1
 ALVR="$ROOT/src/alvr-monado"
 ALVR_RENDER="$ROOT/src/alvr_render"
 

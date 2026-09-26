@@ -1,0 +1,18 @@
+[Unit]
+Description=Intel XR Monado-ALVR service
+After=graphical-session.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+StandardInput=null
+Environment=XRT_LOG=debug
+Environment=XRT_NO_STDIN=true
+ExecStart=/ai/intel-xr-prototype/build/monado-alvr/src/xrt/targets/service/monado-service
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Install]
+WantedBy=default.target
