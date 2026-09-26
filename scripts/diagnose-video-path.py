@@ -20,7 +20,7 @@ def root():
     raise SystemExit("ERROR: cannot locate intel-xr-prototype; set INTEL_XR_ROOT")
 
 ROOT=root(); REPO=ROOT/"src/Monado-ALVR"; LOG=ROOT/"logs"; LOG.mkdir(parents=True,exist_ok=True)
-stamp=time.strftime("%Y-%m-%d_%H-%M-%S"); out=LOG/f"{stamp}_video-path-diagnostic.log"
+stamp=time.strftime("%Y-%m-%d_%H-%M-%S"); out=LOG/f"{stamp}_video-path-diagnostic.log"; screenshot=LOG/f"{stamp}_quest-screen.png"
 lines=[]
 def note(s=""): print(s); lines.append(s)
 def cmd(args):
@@ -76,6 +76,21 @@ if proc.poll() is not None:
     txt=proc.stdout.read() if proc.stdout else ""; lines.append(txt); out.write_text("\n".join(lines),encoding="utf-8")
     raise SystemExit(f"ERROR: video test exited early ({proc.returncode}). Log: {out}")
 note(f"[OpenXR test] running pid={proc.pid}")
+
+# Give the stream a moment to settle, then capture exactly what Android is rendering.
+# screencap is best-effort on Quest: protected/compositor-only XR layers may appear black.
+time.sleep(2)
+shot=run([adb,"exec-out","screencap","-p"])
+if shot.returncode==0 and shot.stdout:
+    # run() is text-oriented, so redo screencap in binary mode for a valid PNG.
+    bp=subprocess.run([adb,"exec-out","screencap","-p"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+    if bp.returncode==0 and bp.stdout.startswith(b"\\x89PNG"):
+        screenshot.write_bytes(bp.stdout)
+        note(f"[Quest screenshot] {screenshot}")
+    else:
+        note("[Quest screenshot] FAILED (no valid PNG returned)")
+else:
+    note("[Quest screenshot] FAILED (screencap unavailable)")
 
 # Capture outbound ALVR traffic. sudo -n intentionally avoids hanging for a password.
 iface=os.getenv("XR_WIFI_DEV","wlx9cefd5fa3634")
@@ -149,4 +164,4 @@ else:
     verdict="NO PC→QUEST VIDEO TRAFFIC OBSERVED; inspect server encode/forward path or capture interface."
 note("[Verdict] "+verdict)
 out.write_text("\\n".join(lines)+"\\n",encoding="utf-8")
-note(f"[Log] {out}")
+note(f"[Log] {out}")\nif screenshot.exists(): note(f"[Screenshot] {screenshot}")
