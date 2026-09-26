@@ -11,10 +11,11 @@ PAGE="""<!doctype html><meta charset=utf-8><title>Intel XR Clients</title>
 <style>body{font:16px system-ui;max-width:900px;margin:32px auto;padding:0 20px}button,input{margin:4px;padding:8px}pre{background:#eee;padding:12px}.card{border:1px solid #bbb;padding:12px;margin:12px 0}</style>
 <h1>Intel XR Clients</h1><p>Default policy: <b>auto-accept protocol-valid ALVR clients</b>.</p>
 <h2>Approved MAC devices</h2><input id=file type=file accept=".json,.xlsx"><button onclick="upload()">Import JSON/XLSX</button><pre id=approved></pre>
-<h2>ALVR clients</h2><div id=x>Loading...</div>
+<h2>ALVR clients</h2><button onclick="clearClients()">Clear client cache</button><span id=msg></span><div id=x>Loading...</div>
 <script>
 async function load(){let j=await fetch('/api/clients').then(r=>r.json());let a=await fetch('/api/approved').then(r=>r.json());approved.textContent=JSON.stringify(a,null,2);let h='<p>Auto-accept: <b>'+(j.auto_accept?'ON':'OFF')+'</b></p>';for(const [n,c] of Object.entries(j.clients||{})){h+='<div class=card><b>'+n+'</b><pre>'+JSON.stringify(c,null,2)+'</pre><button onclick="act(\''+n+'\',\'Trust\')">Approve</button><button onclick="act(\''+n+'\',\'RemoveEntry\')">Reject / Forget</button></div>'}x.innerHTML=h||'No clients'}
 async function act(n,a){await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify([n,a])});load()}
+async function clearClients(){if(!confirm('Clear cached ALVR client entries? Approved MAC devices are preserved.'))return;let r=await fetch('/api/clients/clear',{method:'POST'});msg.textContent=r.ok?' Client cache cleared.':' Clear failed.';load()}
 async function upload(){let f=file.files[0];if(!f)return;let r=await fetch('/api/approved/import',{method:'POST',headers:{'X-Filename':f.name},body:await f.arrayBuffer()});if(!r.ok)alert(await r.text());load()}
 load();setInterval(load,3000)
 </script>"""
@@ -34,6 +35,16 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:return self.sendx(502,json.dumps({"error":str(e)}).encode())
         self.sendx(404,b"{}")
     def do_POST(self):
+        if self.path=="/api/clients/clear":
+            try:
+                clients=json.loads(req("/api/xr/clients")).get("clients",{})
+                errors=[]
+                for name in list(clients):
+                    try:req("/api/session/client-connections","POST",[name,"RemoveEntry"])
+                    except Exception as e:errors.append(f"{name}: {e}")
+                if errors:return self.sendx(502,json.dumps({"errors":errors}).encode())
+                return self.sendx(204,b"")
+            except Exception as e:return self.sendx(502,json.dumps({"error":str(e)}).encode())
         if self.path=="/api/approved/import":
             try:
                 n=int(self.headers.get("Content-Length","0")); raw=self.rfile.read(n)
