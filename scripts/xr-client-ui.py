@@ -28,17 +28,19 @@ def req(path, method="GET", data=None):
     with urllib.request.urlopen(r,timeout=3) as x:return x.read()
 PAGE="""<!doctype html><meta charset=utf-8><title>Intel XR Clients</title>
 <style>body{font:16px system-ui;max-width:900px;margin:32px auto;padding:0 20px}button,input{margin:4px;padding:8px}pre{background:#eee;padding:12px}.card{border:1px solid #bbb;padding:12px;margin:12px 0}</style>
-<h1>Intel XR Clients</h1><p>Default policy: <b>auto-accept protocol-valid ALVR clients</b>.</p>
-<h2>Settings</h2><p>Edits <code>config/xr-build.json</code>. Settings requiring rebuild/restart are labeled after save.</p><div id=settings>Loading...</div><button onclick="saveSettings()">Save settings</button><span id=setmsg></span><h2>Approved MAC devices</h2><input id=file type=file accept=".json,.xlsx"><button onclick="upload()">Import JSON/XLSX</button><pre id=approved></pre>
+<h1>Intel XR Clients</h1><div id=stack>Checking stack...</div><p>Default policy: <b>auto-accept protocol-valid ALVR clients</b>.</p>
+<h2>Settings</h2><p>Edits <code>config/xr-build.json</code>. Settings requiring rebuild/restart are labeled after save.</p><div id=settings>Loading...</div><button onclick="saveSettings()">Save settings</button><button onclick="service('restart')">Restart services</button><button onclick="service('rebuild')">Rebuild runtime</button><span id=setmsg></span><h2>Approved MAC devices</h2><input id=file type=file accept=".json,.xlsx"><button onclick="upload()">Import JSON/XLSX</button><pre id=approved></pre>
 <h2>ALVR clients</h2><button onclick="clearClients()">Clear client cache</button><span id=msg></span><div id=x>Loading...</div>
 <script>
+async function stackStatus(){try{let r=await fetch('/api/status');let j=await r.json();stack.innerHTML='<b>Runtime:</b> '+j.runtime+' &nbsp; <b>API:</b> '+j.api+' &nbsp; <b>UI:</b> READY'}catch(e){stack.textContent='Stack status unavailable: '+e}}
+async function service(a){setmsg.textContent=' '+a+'...';let r=await fetch('/api/service/'+a,{method:'POST'});let j=await r.json();setmsg.textContent=r.ok?' '+j.message:' Failed: '+(j.error||r.status);stackStatus();load()}
 async function loadSettings(){try{let r=await fetch('/api/config');let j=await r.json();let h='';for(const [k,v] of Object.entries(j.values)){let type=typeof v==='boolean'?'checkbox':'text';let val=type==='checkbox'?(v?'checked':''):'value="'+String(v).replaceAll('"','&quot;')+'"';h+='<div><label style="display:inline-block;width:260px">'+k+'</label><input data-key="'+k+'" type="'+type+'" '+val+'></div>'}settings.innerHTML=h}catch(e){settings.textContent='Config error: '+e}}
 async function saveSettings(){let values={};document.querySelectorAll('#settings input').forEach(i=>values[i.dataset.key]=i.type==='checkbox'?i.checked:i.value);setmsg.textContent=' Saving...';let r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values)});let j=await r.json();setmsg.textContent=r.ok?' Saved. '+j.action:' Save failed: '+(j.error||r.status)}
 async function load(){try{let r=await fetch('/api/clients');let j=await r.json();if(!r.ok)throw Error(j.error||r.status);let ar=await fetch('/api/approved');let a=await ar.json();approved.textContent=JSON.stringify(a,null,2);let h='<p>Auto-accept: <b>'+(j.auto_accept?'ON':'OFF')+'</b></p>';for(const [n,c] of Object.entries(j.clients||{})){h+='<div class=card><b>'+n+'</b><pre>'+JSON.stringify(c,null,2)+'</pre><button onclick="act(\''+n+'\',\'Trust\')">Approve</button><button onclick="act(\''+n+'\',\'RemoveEntry\')">Reject / Forget</button></div>'}x.innerHTML=h||'No clients';msg.textContent=''}catch(e){x.innerHTML='<b>API error:</b> '+e;msg.textContent=''}}
 async function act(n,a){await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify([n,a])});load()}
 async function clearClients(){if(!confirm('Clear cached ALVR client entries? Approved MAC devices are preserved.'))return;msg.textContent=' Clearing...';try{let r=await fetch('/api/clients/clear',{method:'POST'});let t=await r.text();if(!r.ok)throw Error(t||r.status);msg.textContent=' Client cache cleared.';await load()}catch(e){msg.textContent=' Clear failed: '+e}}
 async function upload(){let f=file.files[0];if(!f)return;let r=await fetch('/api/approved/import',{method:'POST',headers:{'X-Filename':f.name},body:await f.arrayBuffer()});if(!r.ok)alert(await r.text());load()}
-loadSettings();load();setInterval(load,3000)
+stackStatus();loadSettings();load();setInterval(()=>{stackStatus();load()},3000)
 </script>"""
 class H(BaseHTTPRequestHandler):
     def log_message(self,*a):pass
@@ -46,6 +48,11 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code);self.send_header("Content-Type",typ);self.end_headers();self.wfile.write(body)
     def do_GET(self):
         if self.path=="/":return self.sendx(200,PAGE.encode(),"text/html; charset=utf-8")
+        if self.path=="/api/status":
+            runtime=subprocess.run(["systemctl","--user","is-active","intel-xr-monado.service"],capture_output=True,text=True).stdout.strip()
+            try:req("/api/ping"); api="READY"
+            except Exception:api="DOWN"
+            return self.sendx(200,json.dumps({"runtime":runtime or "unknown","api":api}).encode())
         if self.path=="/api/config":
             try:
                 cfg=config_load(); vals={}
@@ -65,6 +72,14 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:return self.sendx(502,json.dumps({"error":str(e)}).encode())
         self.sendx(404,b"{}")
     def do_POST(self):
+        if self.path in ("/api/service/restart","/api/service/rebuild"):
+            try:
+                if self.path.endswith("restart"):
+                    subprocess.Popen(["bash","/ai/intel-xr-prototype/src/Monado-ALVR/scripts/monado-service.sh","restart"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                    return self.sendx(202,json.dumps({"message":"Restart requested."}).encode())
+                subprocess.Popen(["bash","/ai/intel-xr-prototype/src/Monado-ALVR/scripts/build-intel-xr.sh"],stdout=open("/ai/intel-xr-prototype/logs/webui-build.log","ab"),stderr=subprocess.STDOUT)
+                return self.sendx(202,json.dumps({"message":"Build started; progress is logged to logs/webui-build.log."}).encode())
+            except Exception as e:return self.sendx(500,json.dumps({"error":str(e)}).encode())
         if self.path=="/api/config":
             try:
                 raw=json.loads(self.rfile.read(int(self.headers.get("Content-Length","0"))))
