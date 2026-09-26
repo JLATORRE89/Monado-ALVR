@@ -65,9 +65,9 @@ sleep 3
 echo
 echo "[6/7] Discover/trust client"
 TRUSTED=0
-for i in $(seq 1 15); do
+for i in $(seq 1 3); do
   if QUEST_IP="$QUEST_IP" bash "$S/trust-alvr-client.sh"; then TRUSTED=1; break; fi
-  echo "Client not discoverable yet; retry $i/15..."
+  echo "Client not discoverable yet; retry $i/3..."
   sleep 2
 done
 [[ "$TRUSTED" -eq 1 ]] || {
