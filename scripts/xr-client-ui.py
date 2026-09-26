@@ -7,7 +7,7 @@ CONFIG="/ai/intel-xr-prototype/src/Monado-ALVR/config/xr-build.json"
 EDITABLE={
  "paths.root":str,"paths.android_home":str,"paths.java_home":str,
  "android.ndk_version":str,"android.rust_target":str,"android.platform_api":int,
- "android.openxr_sdk_repo":str,"android.openxr_sdk_ref":str,
+ "android.openxr_sdk_repo":str,"android.openxr_sdk_ref":str,"android.usb_stay_awake":bool,
  "alvr.legacy_protocol_test":bool,
  "network.quest_ip":str,"network.direct_ip_fallback":bool,"network.mdns":bool,
  "network.legacy_udp":bool,"network.usb":bool,
