@@ -13,5 +13,12 @@
   },
   "alvr": {
     "legacy_protocol_test": true
+  },
+  "network": {
+    "quest_ip": "192.168.86.168",
+    "direct_ip_fallback": true,
+    "mdns": true,
+    "legacy_udp": true,
+    "usb": true
   }
 }
