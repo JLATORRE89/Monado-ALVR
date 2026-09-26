@@ -64,32 +64,21 @@ alvr_target_init_post_vulkan(comp_target *ct, uint32_t pref_w, uint32_t pref_h)
 
 	vk_bundle &vk = get_vk(ct);
 
-	auto lock_mutex = [](MutexProxy *m) { os_mutex_lock(reinterpret_cast<os_mutex *>(m->mutex)); };
-
-	auto unlock_mutex = [](MutexProxy *m) { os_mutex_unlock(reinterpret_cast<os_mutex *>(m->mutex)); };
-
 	AlvrVkInfo info = {
 	    .instance = vk.instance,
 	    .version = vk.version,
-
 	    .physDev = vk.physical_device,
 	    .phyDevIdx = static_cast<u32>(vk.physical_device_index),
 	    .device = vk.device,
-
 	    .queueFamIdx = vk.queue_family_index,
 	    .queueIdx = vk.queue_index,
 	    .queue = vk.queue,
-	    .queueMutex{.lock = lock_mutex,
-	                .unlock = unlock_mutex,
-	                .mutex =
-	                    MutexProxy{
-	                        .mutex = reinterpret_cast<void *>(&vk.queue_mutex),
-	                    }},
-
-	    .encQueueFamily = vk.encode_queue_family_index,
-	    .encQueue = vk.encode_queue,
+	    .mutex = {
+	        .lock = [](MutexProxy *m) { os_mutex_lock(reinterpret_cast<os_mutex *>(m->mutex)); },
+	        .unlock = [](MutexProxy *m) { os_mutex_unlock(reinterpret_cast<os_mutex *>(m->mutex)); },
+	        .mutex = {.mutex = reinterpret_cast<void *>(&vk.queue_mutex)},
+	    },
 	};
-
 	base.enc.emplace(info);
 
 	// TODO: This should obviously go
@@ -348,7 +337,6 @@ alvr_create_target_factory()
 	    VK_KHR_VIDEO_ENCODE_QUEUE_EXTENSION_NAME,
 	    VK_KHR_VIDEO_ENCODE_H264_EXTENSION_NAME,
 	    VK_KHR_VIDEO_ENCODE_H265_EXTENSION_NAME,
-	    VK_KHR_VIDEO_ENCODE_AV1_EXTENSION_NAME,
 
 	};
 
