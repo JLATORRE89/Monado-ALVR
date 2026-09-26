@@ -217,20 +217,58 @@ python3 - "$ALVR_RENDER/src/Renderer.cpp" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]); s=p.read_text()
-# Compile-in diagnostic hook. The actual pattern is enabled at runtime with
-# XR_VIDEO_TEST_PATTERN=1. Keep this deliberately local to the renderer so it
-# exercises the normal encoder/transport/Quest decoder path.
-if 'XR_VIDEO_TEST_PATTERN' not in s:
-    # Add a one-time diagnostic marker near the renderer implementation. This
-    # first stage intentionally instruments rather than guessing at image layout;
-    # build/runtime logs will expose the exact frame submission point.
-    marker='#include'
-    pos=s.find('\n', s.find(marker))
-    s=s[:pos+1] + '#include <cstdlib>\n' + s[pos+1:]
-    # Instrument Renderer construction/entry by using a static helper available
-    # throughout this TU; subsequent frame-fill patch keys off the observed path.
-    helper='''\nstatic bool xr_video_test_pattern_enabled() {\n    const char *v = std::getenv("XR_VIDEO_TEST_PATTERN");\n    return v && (v[0] == '1' || v[0] == 'y' || v[0] == 'Y' || v[0] == 't' || v[0] == 'T');\n}\n'''
-    s=helper+s
+if '#include <cstdlib>' not in s:
+    s=s.replace('#include "Renderer.hpp"', '#include "Renderer.hpp"\n#include <cstdlib>', 1)
+needle='''    cmdBuf.writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, timestampPool, 1);'''
+inject='''    // Diagnostic: overwrite the normal rendered output immediately before
+    // submission to the encoder. This exercises encoder -> network -> Quest
+    // decoder/presentation independently of Monado scene rendering.
+    const char *testPattern = std::getenv("XR_VIDEO_TEST_PATTERN");
+    if (testPattern && (testPattern[0] == '1' || testPattern[0] == 'y' ||
+                        testPattern[0] == 'Y' || testPattern[0] == 't' ||
+                        testPattern[0] == 'T')) {
+        vk::ImageMemoryBarrier toTransfer {
+            .srcAccessMask = vk::AccessFlagBits::eShaderWrite,
+            .dstAccessMask = vk::AccessFlagBits::eTransferWrite,
+            .oldLayout = output.image.layout,
+            .newLayout = vk::ImageLayout::eTransferDstOptimal,
+            .image = output.image.image,
+            .subresourceRange = {
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .levelCount = 1,
+                .layerCount = 1,
+            },
+        };
+        cmdBuf.pipelineBarrier(vk::PipelineStageFlagBits::eComputeShader,
+            vk::PipelineStageFlagBits::eTransfer, {}, {}, {}, toTransfer);
+
+        // Bright magenta is intentional: unmistakable if it reaches the HMD.
+        vk::ClearColorValue color { std::array<float, 4>{1.0f, 0.0f, 1.0f, 1.0f} };
+        vk::ImageSubresourceRange range {
+            .aspectMask = vk::ImageAspectFlagBits::eColor,
+            .levelCount = 1,
+            .layerCount = 1,
+        };
+        cmdBuf.clearColorImage(output.image.image,
+            vk::ImageLayout::eTransferDstOptimal, color, range);
+
+        vk::ImageMemoryBarrier toGeneral {
+            .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
+            .dstAccessMask = vk::AccessFlagBits::eMemoryRead,
+            .oldLayout = vk::ImageLayout::eTransferDstOptimal,
+            .newLayout = vk::ImageLayout::eGeneral,
+            .image = output.image.image,
+            .subresourceRange = range,
+        };
+        cmdBuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer,
+            vk::PipelineStageFlagBits::eBottomOfPipe, {}, {}, {}, toGeneral);
+        output.image.layout = vk::ImageLayout::eGeneral;
+    }
+
+    cmdBuf.writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe, timestampPool, 1);'''
+if 'Bright magenta is intentional' not in s:
+    if needle not in s: raise SystemExit("test-pattern injection point missing")
+    s=s.replace(needle,inject,1)
 p.write_text(s)
 PY
 
