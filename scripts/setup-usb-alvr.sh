@@ -2,12 +2,10 @@
 set -u
 ROOT="${INTEL_XR_ROOT:-/ai/intel-xr-prototype}"
 LOGDIR="$ROOT/logs"
-mkdir -p "$LOGDIR"
-LOG="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_setup-usb-alvr.log"
-exec > >(tee "$LOG") 2>&1
+source "$ROOT/src/Monado-ALVR/scripts/xr-log.sh"
+xr_init_log "$(basename "$0" .sh)"
 
 echo "=== ALVR USB setup ==="
-echo "Log: $LOG"
 echo
 echo "Pinned ALVR wired mode uses ADB FORWARD for control 9943 and stream 9944."
 echo "Port 8082 is the dashboard web server and is not part of the wired stream tunnel."
