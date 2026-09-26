@@ -78,20 +78,29 @@ if proc.poll() is not None:
 note(f"[OpenXR test] running pid={proc.pid}")
 
 # Give the stream a moment to settle, then capture the Quest display.
-# Save on-device first; binary exec-out can be unreliable on some Quest/ADB builds.
+# Quest screencap may return JPEG/WebP rather than PNG; preserve the actual format.
 time.sleep(2)
 remote_shot="/sdcard/intel-xr-diagnostic.png"
+raw_shot=LOG/f"{stamp}_quest-screen.capture"
 cmd([adb,"shell","rm","-f",remote_shot])
 cap=run([adb,"shell","screencap","-p",remote_shot])
-pull=run([adb,"pull",remote_shot,str(screenshot)]) if cap.returncode==0 else cap
+pull=run([adb,"pull",remote_shot,str(raw_shot)]) if cap.returncode==0 else cap
 cmd([adb,"shell","rm","-f",remote_shot])
-if pull.returncode==0 and screenshot.exists():
-    data=screenshot.read_bytes()
-    if data.startswith(b"\\x89PNG") and len(data)>100:
+if pull.returncode==0 and raw_shot.exists():
+    data=raw_shot.read_bytes()
+    ext=None
+    if data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"): ext=".png"
+    elif data.startswith(b"\\xff\\xd8\\xff"): ext=".jpg"
+    elif data.startswith(b"RIFF") and data[8:12]==b"WEBP": ext=".webp"
+    if ext:
+        screenshot=screenshot.with_suffix(ext)
+        raw_shot.replace(screenshot)
         note(f"[Quest screenshot] {screenshot} ({len(data)} bytes)")
     else:
-        note(f"[Quest screenshot] FAILED (invalid PNG, {len(data)} bytes)")
-        screenshot.unlink(missing_ok=True)
+        head=data[:16].hex()
+        note(f"[Quest screenshot] FAILED (unknown format, {len(data)} bytes, header={head})")
+        # Keep unknown capture for diagnosis instead of deleting evidence.
+        screenshot=raw_shot
 else:
     note("[Quest screenshot] FAILED (Quest screencap/pull failed)")
 
