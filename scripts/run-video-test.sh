@@ -1,6 +1,26 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-ROOT="${INTEL_XR_ROOT:-/ai/intel-xr-prototype}"
+# Resolve the project root without assuming /ai or any fixed mount point.
+# Priority: INTEL_XR_ROOT -> enclosing intel-xr-prototype -> repo parent layout.
+if [[ -n "${INTEL_XR_ROOT:-}" ]]; then
+  ROOT="$INTEL_XR_ROOT"
+else
+  HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  probe="$PWD"
+  ROOT=""
+  while [[ "$probe" != "/" ]]; do
+    if [[ "$(basename "$probe")" == "intel-xr-prototype" ]]; then ROOT="$probe"; break; fi
+    probe="$(dirname "$probe")"
+  done
+  if [[ -z "$ROOT" ]]; then
+    probe="$HERE"
+    while [[ "$probe" != "/" ]]; do
+      if [[ "$(basename "$probe")" == "intel-xr-prototype" ]]; then ROOT="$probe"; break; fi
+      probe="$(dirname "$probe")"
+    done
+  fi
+  [[ -n "$ROOT" ]] || { echo "ERROR: cannot locate enclosing intel-xr-prototype; set INTEL_XR_ROOT"; exit 1; }
+fi
 SRC="$ROOT/src/Monado-ALVR/demo/checkerboard"
 BUILD="$ROOT/build/intel-xr-checkerboard"
 SDK="$ROOT/src/OpenXR-SDK-Source"
