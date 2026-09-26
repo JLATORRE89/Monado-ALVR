@@ -86,8 +86,8 @@ replacement='''        if let Some(socket) = &self.legacy_socket {
         Ok(clients)
     }
 }'''
-if 'legacy_socket: Option<UdpSocket>' not in s:
-    if needle not in s: raise SystemExit("legacy insertion point missing")
+if 'clients.entry(format!("legacy-{}"' not in s:
+    if needle not in s: raise SystemExit("legacy receive insertion point missing")
     s=s.replace(needle,replacement,1)
 p.write_text(s)
 PY
