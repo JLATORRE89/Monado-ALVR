@@ -3,13 +3,11 @@ set -u
 ROOT="${INTEL_XR_ROOT:-/ai/intel-xr-prototype}"
 QUEST_IP="${1:-192.168.86.168}"
 LOGDIR="$ROOT/logs"
-mkdir -p "$LOGDIR"
-LOG="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_network-diagnostic.log"
-exec > >(tee "$LOG") 2>&1
+source "$ROOT/src/Monado-ALVR/scripts/xr-log.sh"
+xr_init_log "$(basename "$0" .sh)"
 
 echo "=== Intel XR network diagnostic ==="
 echo "Quest IP: $QUEST_IP"
-echo "Log: $LOG"
 echo
 echo "=== WORKSTATION NETWORK ==="
 ip -4 addr show | grep -E '^[0-9]+:|inet ' || true
