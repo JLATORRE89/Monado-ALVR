@@ -20,5 +20,9 @@
     "mdns": true,
     "legacy_udp": true,
     "usb": true
+  },
+  "video": {
+    "test_pattern": false,
+    "test_pattern_mode": "static-bars"
   }
 }
