@@ -41,5 +41,19 @@ case "$ACTION" in
    fi
    ;;
  logs) journalctl --user -u intel-xr-monado.service -n "${2:-200}" --no-pager ;;
- *) echo "Usage: $0 {install|start|restart|stop|enable|disable|status|ensure|logs}"; exit 2 ;;
+ crash)
+   systemctl --user stop intel-xr-monado.service 2>/dev/null || true
+   CRASH_LOG="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_monado-coredump.log"
+   echo "Collecting latest Monado coredump: $CRASH_LOG"
+   if coredumpctl --user info monado-service >/dev/null 2>&1; then
+     coredumpctl --user debug monado-service --debugger-arguments="-batch -ex 'thread apply all bt 20'" 2>&1 | tee "$CRASH_LOG"
+   elif coredumpctl info monado-service >/dev/null 2>&1; then
+     coredumpctl debug monado-service --debugger-arguments="-batch -ex 'thread apply all bt 20'" 2>&1 | tee "$CRASH_LOG"
+   else
+     echo "ERROR: no Monado coredump found." | tee "$CRASH_LOG"
+     exit 1
+   fi
+   echo "Crash log: $CRASH_LOG"
+   ;;
+ *) echo "Usage: $0 {install|start|restart|stop|enable|disable|status|ensure|logs|crash}"; exit 2 ;;
 esac
