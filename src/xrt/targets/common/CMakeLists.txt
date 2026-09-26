@@ -11,10 +11,10 @@
 # set_target_properties(libalvr PROPERTIES IMPORTED_LOCATION /home/duck/devel/alvr_intact/target/debug/libalvr_server.so)
 
 add_library(x264 SHARED IMPORTED)
-set_target_properties(x264 PROPERTIES IMPORTED_LOCATION /usr/lib64/libx264.so)
+set_target_properties(x264 PROPERTIES IMPORTED_LOCATION /usr/lib/x86_64-linux-gnu/libx264.so)
 
 add_library(vk SHARED IMPORTED)
-set_target_properties(vk PROPERTIES IMPORTED_LOCATION /usr/lib64/libvulkan.so.1)
+set_target_properties(vk PROPERTIES IMPORTED_LOCATION /usr/lib/x86_64-linux-gnu/libvulkan.so.1)
 
 # set_target_properties(libpthread PROPERTIES INTERFACE_INCLUDE_DIRECTORIES /usr/include)
 
