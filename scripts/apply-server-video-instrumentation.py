@@ -103,49 +103,13 @@ patch_once(
     "[INTEL-XR-SERVER] ENCODER_INPUT",
 )
 
-connection_old = """        move || {
-            while is_streaming(&client_hostname) {
-"""
-
-connection_new = """        move || {
-            let mut intel_xr_video_packet_sent_logged = false;
-            while is_streaming(&client_hostname) {
-"""
-
-patch_once(
-    connection,
-    connection_old,
-    connection_new,
-    "intel_xr_video_packet_sent_logged",
-)
-
-send_old = """                video_sender.send(buffer).ok();
-"""
-
-send_new = """                let payload_len = payload.len();
-                let is_idr = header.is_idr;
-                if video_sender.send(buffer).is_ok() && !intel_xr_video_packet_sent_logged {
-                    info!(
-                        "[INTEL-XR-SERVER] VIDEO_PACKET_SENT bytes={} idr={}",
-                        payload_len, is_idr
-                    );
-                    intel_xr_video_packet_sent_logged = true;
-                }
-"""
-
-patch_once(
-    connection,
-    send_old,
-    send_new,
-    "[INTEL-XR-SERVER] VIDEO_PACKET_SENT",
-)
-
 print()
 print("Server video instrumentation is applied.")
 print("Expected markers:")
 print("  FRAME_RECEIVED_FROM_MONADO   (Monado-ALVR repository source)")
 print("  ENCODER_INPUT                (alvr_render companion)")
 print("  ENCODED_FRAME ... idr=...    (alvr_render companion)")
-print("  VIDEO_PACKET_SENT ...        (ALVR server_core companion)")
+print("  VIDEO_PACKET_SENT ...        (JLATORRE89/ALVR branch)")
+print("  DECODER_CONFIG_SENT ...      (JLATORRE89/ALVR branch)")
 print()
 print("No Git refs were changed.")
