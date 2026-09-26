@@ -120,7 +120,19 @@ done
 }
 
 echo
-echo "[7/7] Final health\n"bash "$S/monado-service.sh" status
+echo "[7/7] Post-trust handshake diagnostic"
+sleep 3
+echo "Client registry after trust:"
+curl -fsS -H 'X-ALVR: 1' http://127.0.0.1:8082/api/xr/clients 2>/dev/null | python3 -m json.tool || true
+echo
+echo "Recent Monado/ALVR handshake messages:"
+journalctl --user -u intel-xr-monado.service --since "-45 seconds" --no-pager 2>/dev/null | grep -Ei 'alvr|legacy|handshake|connect|protocol|socket|error|warn' | tail -160 || true
+echo
+echo "Recent Quest ALVR messages:"
+adb logcat -d -v time 2>/dev/null | grep -Ei 'alvr|handshake|protocol|socket|connection|os error|9943|9944' | tail -160 || true
+echo
+echo "Final Monado service status:"
+bash "$S/monado-service.sh" status
 
 echo "XR support workflow complete."
 echo "Monado PID: $MONADO_PID"
