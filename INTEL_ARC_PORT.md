@@ -1,37 +1,68 @@
-# Intel Arc / Ubuntu ALVR integration work
+# Intel Arc Linux Port
 
-This branch tracks the Linux/Intel Arc work needed to run the Monado ALVR integration without SteamVR.
+## Goal
 
-## Target environment
+Run PC-powered OpenXR applications on Ubuntu 24.04 through Monado and ALVR without SteamVR, targeting Intel Arc GPUs and a Quest-class ALVR client.
 
-- Ubuntu 24.04
-- Intel Arc GPU (development hardware: Arc A750)
-- Mesa Vulkan
-- Monado OpenXR runtime
-- ALVR transport/client
-- SteamVR disabled
+## Reproducible source set
 
-## Confirmed fixes carried on this branch
+The `intel-arc-linux` branch is the project source of truth.
 
-1. **ALVR target-factory lifetime**
-   `target_instance.c` previously created the ALVR `comp_target_factory` as a stack local and passed its address to the compositor, which retains the pointer. The factory now has static storage duration.
+Companion repositories are prepared by `scripts/prepare-companions.sh`:
 
-2. **Ubuntu library paths**
-   The experimental build hard-coded Fedora-style `/usr/lib64` paths for x264 and Vulkan. These are changed to Ubuntu/Debian's x86-64 multiarch paths.
+- ALVR `monado`: `5d45a6dcd9a5ae3df7c60c6a1282fb52140346da`
+- alvr_render: `ecb281249b6900ec6ceb6e0570be5100533c706a`
 
-3. **Device-extension lifetime**
-   The current upstream/fork source already uses a static `device_extensions` array in `alvr_create_target_factory()`. This is important: an earlier revision used a stack-local array and produced invalid extension pointers during Vulkan initialization.
+These are pinned because the Monado/ALVR bridge is a historical experimental integration and its companion branches have not advanced in lockstep with current ALVR mainline.
 
-## Hardware validation so far
+## Compatibility changes
 
-On the development Arc A750, Monado successfully reaches Vulkan device creation and reports a discrete Intel Arc A750 using Mesa. Renderer resource initialization succeeds and external OPAQUE_FD image memory import/export is reported as supported.
+The preparation script applies two deterministic compatibility changes to the companion checkout:
 
-## Current blocker
+1. Renames the historical `VIEWS_PARAMS` C API use in alvr_render to the generated `LOCAL_VIEW_PARAMS` ABI used by the pinned ALVR server core.
+2. On Intel Vulkan devices, disables the historical DRM-format-modifier image creation path while retaining DMA-BUF export through the linear fallback. This targets the observed Arc A750/Mesa crash in `vkCreateImage()` while preserving the DMA-BUF metadata path consumed by the FFmpeg/VAAPI bridge.
 
-The older ALVR renderer path used during testing crashes while creating its encoder output image through the DMA-BUF + DRM-format-modifier path in `alvr_render::createOutputImage()`. The crash occurs in Intel's Vulkan driver during `vkCreateImage()`, after Monado's renderer has initialized.
+The Monado fork also keeps the ALVR compositor target factory alive for the compositor lifetime and uses Ubuntu/Debian multiarch paths for x264 and Vulkan.
 
-The next compatibility work is to make the ALVR output-image/export path select a supported external-memory strategy instead of unconditionally assuming the historical DMA-BUF/DRM-modifier path. OPAQUE_FD is a candidate because the Arc A750 reports image import/export support for that handle type.
+## Workflow
 
-## Repository strategy
+Fresh Ubuntu 24.04 machine:
 
-Keep `main` close to the forked upstream history. Intel/Ubuntu compatibility work belongs on this branch until it is reproducible and tested end-to-end with an ALVR headset client.
+```bash
+bash scripts/bootstrap-intel-xr.sh
+```
+
+Existing workstation:
+
+```bash
+git pull
+bash scripts/build-intel-xr.sh
+```
+
+Inspect:
+
+```bash
+bash scripts/status-intel-xr.sh
+```
+
+Runtime test:
+
+```bash
+bash scripts/test-intel-xr.sh
+```
+
+Logs are intentionally overwritten on each run:
+
+- `/ai/intel-xr-prototype/logs/bootstrap-intel-xr.log`
+- `/ai/intel-xr-prototype/logs/build-intel-xr.log`
+- `/ai/intel-xr-prototype/logs/test-intel-xr.log`
+
+## Validated hardware state
+
+The development workstation has detected an Intel Arc A750 through Mesa Vulkan. During previous runtime testing Monado successfully created the Intel Vulkan device, graphics queue, external-memory/semaphore capabilities, renderer resources, and images before reaching the historical alvr_render DRM-modifier output-image crash.
+
+The Intel linear DMA-BUF compatibility change is intended to move beyond that specific crash. It still requires workstation validation.
+
+## SteamVR
+
+SteamVR integration is intentionally disabled. This project uses Monado as the OpenXR runtime and ALVR as the headset transport.
