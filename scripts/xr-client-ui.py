@@ -3,6 +3,25 @@ import json, os, urllib.request, subprocess, tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 API=os.environ.get("ALVR_API","http://127.0.0.1:8082")
 PORT=int(os.environ.get("XR_CLIENT_UI_PORT","8083"))
+CONFIG="/ai/intel-xr-prototype/src/Monado-ALVR/config/xr-build.json"
+EDITABLE={
+ "paths.root":str,"paths.android_home":str,"paths.java_home":str,
+ "android.ndk_version":str,"android.rust_target":str,"android.platform_api":int,
+ "android.openxr_sdk_repo":str,"android.openxr_sdk_ref":str,
+ "alvr.legacy_protocol_test":bool,
+ "network.quest_ip":str,"network.direct_ip_fallback":bool,"network.mdns":bool,
+ "network.legacy_udp":bool,"network.usb":bool,
+}
+def config_load(): return json.load(open(CONFIG))
+def config_save(data):
+    tmp=CONFIG+".tmp"
+    with open(tmp,"w") as x: json.dump(data,x,indent=2); x.write("\n")
+    os.replace(tmp,CONFIG)
+def set_path(obj,path,value):
+    cur=obj
+    bits=path.split(".")
+    for b in bits[:-1]: cur=cur[b]
+    cur[bits[-1]]=value
 def req(path, method="GET", data=None):
     body=None if data is None else json.dumps(data).encode()
     r=urllib.request.Request(API+path,data=body,method=method,headers={"X-ALVR":"1","Content-Type":"application/json"})
@@ -10,14 +29,16 @@ def req(path, method="GET", data=None):
 PAGE="""<!doctype html><meta charset=utf-8><title>Intel XR Clients</title>
 <style>body{font:16px system-ui;max-width:900px;margin:32px auto;padding:0 20px}button,input{margin:4px;padding:8px}pre{background:#eee;padding:12px}.card{border:1px solid #bbb;padding:12px;margin:12px 0}</style>
 <h1>Intel XR Clients</h1><p>Default policy: <b>auto-accept protocol-valid ALVR clients</b>.</p>
-<h2>Approved MAC devices</h2><input id=file type=file accept=".json,.xlsx"><button onclick="upload()">Import JSON/XLSX</button><pre id=approved></pre>
+<h2>Settings</h2><p>Edits <code>config/xr-build.json</code>. Settings requiring rebuild/restart are labeled after save.</p><div id=settings>Loading...</div><button onclick="saveSettings()">Save settings</button><span id=setmsg></span><h2>Approved MAC devices</h2><input id=file type=file accept=".json,.xlsx"><button onclick="upload()">Import JSON/XLSX</button><pre id=approved></pre>
 <h2>ALVR clients</h2><button onclick="clearClients()">Clear client cache</button><span id=msg></span><div id=x>Loading...</div>
 <script>
+async function loadSettings(){try{let r=await fetch('/api/config');let j=await r.json();let h='';for(const [k,v] of Object.entries(j.values)){let type=typeof v==='boolean'?'checkbox':'text';let val=type==='checkbox'?(v?'checked':''):'value="'+String(v).replaceAll('"','&quot;')+'"';h+='<div><label style="display:inline-block;width:260px">'+k+'</label><input data-key="'+k+'" type="'+type+'" '+val+'></div>'}settings.innerHTML=h}catch(e){settings.textContent='Config error: '+e}}
+async function saveSettings(){let values={};document.querySelectorAll('#settings input').forEach(i=>values[i.dataset.key]=i.type==='checkbox'?i.checked:i.value);setmsg.textContent=' Saving...';let r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(values)});let j=await r.json();setmsg.textContent=r.ok?' Saved. '+j.action:' Save failed: '+(j.error||r.status)}
 async function load(){try{let r=await fetch('/api/clients');let j=await r.json();if(!r.ok)throw Error(j.error||r.status);let ar=await fetch('/api/approved');let a=await ar.json();approved.textContent=JSON.stringify(a,null,2);let h='<p>Auto-accept: <b>'+(j.auto_accept?'ON':'OFF')+'</b></p>';for(const [n,c] of Object.entries(j.clients||{})){h+='<div class=card><b>'+n+'</b><pre>'+JSON.stringify(c,null,2)+'</pre><button onclick="act(\''+n+'\',\'Trust\')">Approve</button><button onclick="act(\''+n+'\',\'RemoveEntry\')">Reject / Forget</button></div>'}x.innerHTML=h||'No clients';msg.textContent=''}catch(e){x.innerHTML='<b>API error:</b> '+e;msg.textContent=''}}
 async function act(n,a){await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify([n,a])});load()}
 async function clearClients(){if(!confirm('Clear cached ALVR client entries? Approved MAC devices are preserved.'))return;msg.textContent=' Clearing...';try{let r=await fetch('/api/clients/clear',{method:'POST'});let t=await r.text();if(!r.ok)throw Error(t||r.status);msg.textContent=' Client cache cleared.';await load()}catch(e){msg.textContent=' Clear failed: '+e}}
 async function upload(){let f=file.files[0];if(!f)return;let r=await fetch('/api/approved/import',{method:'POST',headers:{'X-Filename':f.name},body:await f.arrayBuffer()});if(!r.ok)alert(await r.text());load()}
-load();setInterval(load,3000)
+loadSettings();load();setInterval(load,3000)
 </script>"""
 class H(BaseHTTPRequestHandler):
     def log_message(self,*a):pass
@@ -25,6 +46,15 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code);self.send_header("Content-Type",typ);self.end_headers();self.wfile.write(body)
     def do_GET(self):
         if self.path=="/":return self.sendx(200,PAGE.encode(),"text/html; charset=utf-8")
+        if self.path=="/api/config":
+            try:
+                cfg=config_load(); vals={}
+                for key in EDITABLE:
+                    cur=cfg
+                    for bit in key.split("."): cur=cur[bit]
+                    vals[key]=cur
+                return self.sendx(200,json.dumps({"values":vals}).encode())
+            except Exception as e:return self.sendx(500,json.dumps({"error":str(e)}).encode())
         if self.path=="/api/approved":
             try:
                 out=subprocess.check_output(["/usr/bin/python3","/ai/intel-xr-prototype/src/Monado-ALVR/scripts/xr-approved-devices.py","list"])
@@ -35,6 +65,20 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:return self.sendx(502,json.dumps({"error":str(e)}).encode())
         self.sendx(404,b"{}")
     def do_POST(self):
+        if self.path=="/api/config":
+            try:
+                raw=json.loads(self.rfile.read(int(self.headers.get("Content-Length","0"))))
+                cfg=config_load()
+                for key,val in raw.items():
+                    if key not in EDITABLE: raise ValueError("setting not editable: "+key)
+                    typ=EDITABLE[key]
+                    if typ is bool: parsed=bool(val)
+                    elif typ is int: parsed=int(val)
+                    else: parsed=str(val)
+                    set_path(cfg,key,parsed)
+                config_save(cfg)
+                return self.sendx(200,json.dumps({"saved":True,"action":"Runtime/network changes may require service restart; toolchain/version changes require rebuild."}).encode())
+            except Exception as e:return self.sendx(400,json.dumps({"error":str(e)}).encode())
         if self.path=="/api/clients/clear":
             try:
                 clients=json.loads(req("/api/xr/clients")).get("clients",{})
