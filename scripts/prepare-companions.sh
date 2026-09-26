@@ -193,6 +193,66 @@ for f in "$ALVR_RENDER/src/Encoder.cpp" "$ALVR_RENDER/src/EventManager.hpp"; do
     sed -i       -e 's/ALVR_EVENT_VIEWS_PARAMS/ALVR_EVENT_LOCAL_VIEW_PARAMS/g'       -e 's/event\.views_params/event.local_view_params/g'       "$f"
 done
 
+echo "=== Instrument ALVR video encode path ==="
+python3 - "$ALVR_RENDER/src/Encoder.cpp" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text()
+old='''void Encoder::present(u32 idx, u64 timelineVal, ViewsInfo const& views)
+{
+    renderer.get().render(vkCtx, idx, timelineVal);
+
+    // TODO: not sure, but might actually work
+    static u64 counter = 0;
+
+    encoder->PushFrame(counter++, /* idrScheduler.CheckIDRInsertion() */ true);
+
+    alvr::FramePacket framePacket;
+    if (!encoder->GetEncoded(framePacket)) {
+        assert(false);
+    }'''
+new='''void Encoder::present(u32 idx, u64 timelineVal, ViewsInfo const& views)
+{
+    static u64 counter = 0;
+    const u64 frameNo = counter;
+    if (frameNo < 5 || frameNo % 300 == 0) {
+        Error("XRVIDEO present begin frame=%lu idx=%u timeline=%lu", frameNo, idx, timelineVal);
+    }
+
+    renderer.get().render(vkCtx, idx, timelineVal);
+    if (frameNo < 5 || frameNo % 300 == 0) {
+        Error("XRVIDEO render complete frame=%lu", frameNo);
+    }
+
+    encoder->PushFrame(counter++, /* idrScheduler.CheckIDRInsertion() */ true);
+    if (frameNo < 5 || frameNo % 300 == 0) {
+        Error("XRVIDEO PushFrame complete frame=%lu", frameNo);
+    }
+
+    alvr::FramePacket framePacket;
+    if (!encoder->GetEncoded(framePacket)) {
+        Error("XRVIDEO GetEncoded FAILED frame=%lu", frameNo);
+        assert(false);
+    }
+    if (frameNo < 5 || frameNo % 300 == 0) {
+        Error("XRVIDEO encoded frame=%lu bytes=%zu pts=%lu idr=%d",
+            frameNo, framePacket.size, framePacket.pts, framePacket.isIDR);
+    }'''
+if 'XRVIDEO present begin' not in s:
+    if old not in s: raise SystemExit("Encoder::present instrumentation point missing")
+    s=s.replace(old,new,1)
+# Log immediately before packet parsing/forwarding.
+needle='''    ParseFrameNals(encoder->GetCodec(), viewParams, framePacket.data, framePacket.size, framePacket.pts, framePacket.isIDR);'''
+repl='''    if (frameNo < 5 || frameNo % 300 == 0) {
+        Error("XRVIDEO forwarding frame=%lu bytes=%zu", frameNo, framePacket.size);
+    }
+    ParseFrameNals(encoder->GetCodec(), viewParams, framePacket.data, framePacket.size, framePacket.pts, framePacket.isIDR);'''
+if 'XRVIDEO forwarding' not in s:
+    if needle not in s: raise SystemExit("ParseFrameNals instrumentation point missing")
+    s=s.replace(needle,repl,1)
+p.write_text(s)
+PY
+
 echo "=== Apply Intel Arc DMA-BUF compatibility ==="
 python3 - "$ALVR_RENDER/src/Renderer.cpp" <<'PY'
 from pathlib import Path
