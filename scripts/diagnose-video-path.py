@@ -154,7 +154,9 @@ elif breakpoint:
     verdict=f"FIRST MISSING EXPLICIT VIDEO CHECKPOINT: {breakpoint}."
 else:
     verdict="ALL INSTRUMENTED VIDEO CHECKPOINTS OBSERVED."
-note("[Verdict] "+verdict)\n\n# Signal the Quest client only after all evidence has been collected.
+note("[Verdict] "+verdict)
+
+# Signal the Quest client only after all evidence has been collected.
 cmd([adb,"shell","touch","/sdcard/intel-xr-diagnostic.done"])
 note("[Headset message] TEST COMPLETE - YOU MAY REMOVE HEADSET")
 time.sleep(3)
