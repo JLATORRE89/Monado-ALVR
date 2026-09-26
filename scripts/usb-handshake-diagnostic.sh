@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -u
 ROOT="${INTEL_XR_ROOT:-/ai/intel-xr-prototype}"
-LOGDIR="$ROOT/logs"; mkdir -p "$LOGDIR"
-STAMP="$(date +%Y-%m-%d_%H-%M-%S)"
-LOG="$LOGDIR/${STAMP}_usb-handshake-diagnostic.log"
-exec > >(tee "$LOG") 2>&1
+LOGDIR="$ROOT/logs"
+source "$ROOT/src/Monado-ALVR/scripts/xr-log.sh"
+xr_init_log "$(basename "$0" .sh)"
 
 echo "=== ALVR USB handshake diagnostic ==="
-echo "Log: $LOG"
 echo "Run for ~20 seconds with ALVR foregrounded in the headset."
 echo
 adb start-server
