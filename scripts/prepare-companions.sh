@@ -127,6 +127,16 @@ elif 'ALVR_LEGACY_PROTOCOL_TEST' not in s: raise SystemExit("protocol check inse
 p.write_text(s)
 PY
 
+echo "=== Repair pinned ALVR client tracking ABI ==="
+python3 - "$ALVR/alvr/client_core/src/connection.rs" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text()
+s=s.replace('view_params_queue.write()', 'global_view_params_queue.lock()')
+s=s.replace('header.views_params', 'header.global_view_params')
+p.write_text(s)
+PY
+
 echo "=== Apply Monado/ALVR ABI compatibility ==="
 for f in "$ALVR_RENDER/src/Encoder.cpp" "$ALVR_RENDER/src/EventManager.hpp"; do
     sed -i       -e 's/ALVR_EVENT_VIEWS_PARAMS/ALVR_EVENT_LOCAL_VIEW_PARAMS/g'       -e 's/event\.views_params/event.local_view_params/g'       "$f"
