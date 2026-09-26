@@ -316,7 +316,7 @@ alvr_hmd_create(void)
 		fovs[0] = xrt_fov_from_alvr_fov(cfg.left.fov);
 		fovs[1] = xrt_fov_from_alvr_fov(cfg.right.fov);
 	};
-	CallbackManager::get().registerCb<ALVR_EVENT_VIEWS_PARAMS>(std::move(viewCb));
+	CallbackManager::get().registerCb<ALVR_EVENT_LOCAL_VIEW_PARAMS>(std::move(viewCb));
 
 	return &hmd->base;
 }
