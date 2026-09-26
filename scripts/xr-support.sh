@@ -35,6 +35,15 @@ if [[ -z "$CLIENT_PACKAGE" ]]; then
 fi
 CLIENT_VERSION="$(adb shell dumpsys package "$CLIENT_PACKAGE" 2>/dev/null | sed -n 's/.*versionName=//p' | head -1 | tr -d '\r')"
 step Client "$CLIENT_PACKAGE ${CLIENT_VERSION:-unknown}"
+
+# A streaming registry entry is not useful if the headset display is asleep.
+# Report power state explicitly; do not wake it automatically here.
+if adb get-state >/dev/null 2>&1; then
+  WAKE="$(adb shell dumpsys power 2>/dev/null | sed -n 's/.*mWakefulness=//p' | head -1 | tr -d '\r')"
+  if [[ "$WAKE" == "Awake" ]]; then step "Headset Power" "OK (Awake)"
+  elif [[ -n "$WAKE" ]]; then step "Headset Power" "WARN ($WAKE)"
+  else step "Headset Power" "Unknown"; fi
+fi
 adb shell pidof "$CLIENT_PACKAGE" >/dev/null 2>&1 || adb shell monkey -p "$CLIENT_PACKAGE" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
 sleep 2
 
