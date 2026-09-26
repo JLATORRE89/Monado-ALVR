@@ -24,6 +24,34 @@ git -C "$ALVR" checkout --detach "$ALVR_REV"
 git -C "$ALVR" submodule sync --recursive
 git -C "$ALVR" submodule update --init --recursive
 
+echo "=== Apply XR multi-mode client compatibility ==="
+python3 - "$ALVR/alvr/session/src/settings.rs" "$ALVR/alvr/server_core/src/web_server.rs" <<'PY'
+from pathlib import Path
+import sys
+settings=Path(sys.argv[1]); s=settings.read_text()
+s=s.replace('auto_trust_clients: cfg!(debug_assertions),','auto_trust_clients: true,')
+settings.write_text(s)
+
+web=Path(sys.argv[2]); w=web.read_text()
+# Add a compact persistent-state endpoint for the local XR client manager.
+needle='.route("/ping", routing::get(async || ())),'
+repl='''.route("/ping", routing::get(async || ()))
+                .route("/xr/clients", routing::get(get_xr_clients)),'''
+if needle in w and 'get_xr_clients' not in w:
+    w=w.replace(needle,repl,1)
+    w += '''
+async fn get_xr_clients() -> Json<serde_json::Value> {
+    let session = SESSION_MANAGER.read();
+    Json(serde_json::json!({
+        "auto_accept": session.settings().connection.client_discovery
+            .as_option().map(|c| c.auto_trust_clients).unwrap_or(false),
+        "clients": session.client_list(),
+    }))
+}
+'''
+web.write_text(w)
+PY
+
 git -C "$ALVR_RENDER" fetch origin
 git -C "$ALVR_RENDER" checkout --detach "$ALVR_RENDER_REV"
 git -C "$ALVR_RENDER" reset --hard "$ALVR_RENDER_REV"
