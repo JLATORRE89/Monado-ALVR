@@ -48,14 +48,15 @@ if [[ "$TRANSPORT" == wifi ]]; then
       exit 1
     elif grep -q '^Status: active' <<<"$UFW_STATUS"; then
       FIREWALL_OK=1
+      QUEST_NET="${QUEST_IP%.*}.0/24"
       for port in 9943 9944; do
-        if ! grep -E "^[[[:space:]]*[0-9]+][[:space:]]+${port}/udp[[:space:]]+ALLOW IN[[:space:]]+${QUEST_IP}([[:space:]]|$)" <<<"$UFW_STATUS" >/dev/null; then
+        if grep -E "[[:space:]]${port}/udp[[:space:]]+ALLOW IN[[:space:]]+(${QUEST_IP}|${QUEST_NET})([[:space:]]|$)" <<<"$UFW_STATUS" >/dev/null; then
+          echo "PASS: UDP $port allowed from Quest ($QUEST_IP or $QUEST_NET)"
+        else
           FIREWALL_OK=0
-          echo "MISSING: UDP $port allow rule for Quest $QUEST_IP"
+          echo "MISSING: UDP $port allow rule covering Quest $QUEST_IP"
           echo "Fix with:"
           echo "  sudo ufw allow from $QUEST_IP to any port $port proto udp comment 'ALVR Quest'"
-        else
-          echo "PASS: UDP $port allowed from $QUEST_IP"
         fi
       done
       if [[ "$FIREWALL_OK" -ne 1 ]]; then
