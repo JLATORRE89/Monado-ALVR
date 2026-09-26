@@ -49,8 +49,14 @@ if [[ "$TRANSPORT" == wifi ]]; then
     elif grep -q '^Status: active' <<<"$UFW_STATUS"; then
       FIREWALL_OK=1
       QUEST_NET="${QUEST_IP%.*}.0/24"
+      # Parse plain "ufw status" output rather than its presentation-oriented
+      # numbered form. Accept an exact-host rule or a covering /24 rule.
+      UFW_PLAIN="$(sudo -n ufw status 2>/dev/null || true)"
       for port in 9943 9944; do
-        if grep -E "[[:space:]]${port}/udp[[:space:]]+ALLOW IN[[:space:]]+(${QUEST_IP}|${QUEST_NET})([[:space:]]|$)" <<<"$UFW_STATUS" >/dev/null; then
+        if awk -v port="${port}/udp" -v host="$QUEST_IP" -v net="$QUEST_NET" '
+          $1 == port && $2 == "ALLOW" && $3 == "IN" && ($4 == host || $4 == net) { found=1 }
+          END { exit(found ? 0 : 1) }
+        ' <<<"$UFW_PLAIN"; then
           echo "PASS: UDP $port allowed from Quest ($QUEST_IP or $QUEST_NET)"
         else
           FIREWALL_OK=0
