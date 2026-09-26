@@ -69,17 +69,41 @@ adb shell pidof alvr.client.stable >/dev/null 2>&1 || adb shell monkey -p alvr.c
 sleep 3
 
 echo
-echo "[6/7] Discover/trust client"
+echo "[6/7] ALVR discovery/transport"
+if [[ "$TRANSPORT" == wifi ]]; then
+  WIFI_DEV="$(ip route get "$QUEST_IP" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')"
+  echo "Quest route interface: ${WIFI_DEV:-unknown}"
+  echo "Workstation sockets before discovery:"
+  ss -lntup | grep -E '9943|9944|8082|5353|monado' || true
+  echo
+  echo "Sampling packets involving Quest $QUEST_IP for 8 seconds..."
+  if command -v tcpdump >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+    PACKETS="$(timeout 8 sudo -n tcpdump -ni "${WIFI_DEV:-any}" "host $QUEST_IP and (udp or tcp)" 2>&1 || true)"
+    printf '%s\n' "$PACKETS"
+    if [[ -z "$PACKETS" || "$PACKETS" == *"0 packets captured"* ]]; then
+      echo "ERROR: no Quest network traffic reached the workstation during the discovery sample."
+      echo "Keep ALVR foregrounded in the headset and rerun."
+      exit 1
+    fi
+  else
+    echo "NOTE: packet capture needs tcpdump and passwordless/current sudo authorization."
+    echo "Run once if needed: sudo true"
+    echo "Then rerun this workflow."
+    exit 1
+  fi
+fi
+
+echo
+echo "Attempting ALVR client discovery/trust (maximum 3 attempts)..."
 TRUSTED=0
 for i in $(seq 1 3); do
   if QUEST_IP="$QUEST_IP" bash "$S/trust-alvr-client.sh"; then TRUSTED=1; break; fi
-  echo "Client not discoverable yet; retry $i/3..."
+  echo "Discovery/trust attempt $i/3 did not identify the Quest."
   sleep 2
 done
 [[ "$TRUSTED" -eq 1 ]] || {
-  echo "ERROR: client was not discovered/trusted."
-  echo "For Wi-Fi inspect: bash $S/network-diagnostic.sh $QUEST_IP"
-  echo "For USB inspect:   bash $S/usb-handshake-diagnostic.sh"
+  echo "ERROR: Quest network traffic exists, but ALVR server_core did not expose a trustable client identity."
+  echo "This is now a server discovery/handshake issue, not a generic reachability test."
   exit 1
 }
 
