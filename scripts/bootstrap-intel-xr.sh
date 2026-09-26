@@ -80,9 +80,9 @@ mkdir -p \
     "$LOGS" \
     "$SCRIPTS"
 
-LOG="$LOGS/bootstrap-$(date +%Y%m%d-%H%M%S).log"
+LOG="$LOGS/bootstrap-intel-xr.log"
 
-exec > >(tee -a "$LOG") 2>&1
+exec > >(tee "$LOG") 2>&1
 
 echo "Log: $LOG"
 echo
@@ -174,6 +174,16 @@ sudo apt-get install -y \
     libbsd-dev \
     zlib1g-dev \
     libssl-dev \
+    libpipewire-0.3-dev \
+    libspa-0.2-dev \
+    libavcodec-dev \
+    libavdevice-dev \
+    libavfilter-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libswresample-dev \
+    libswscale-dev \
+    libx264-dev \
     clang \
     libclang-dev
 
@@ -234,7 +244,9 @@ if [[ -d "$MONADO/.git" ]]; then
 else
 
     git clone \
-        https://github.com/alvr-org/Monado-ALVR.git \
+        --branch intel-arc-linux \
+        --single-branch \
+        git@github.com:JLATORRE89/Monado-ALVR.git \
         "$MONADO"
 
 fi
