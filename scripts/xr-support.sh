@@ -55,12 +55,21 @@ if [[ "$TRANSPORT" == wifi ]]; then
 fi
 step Discovery OK
 
+# Do not let a stale legacy registry entry masquerade as the currently running
+# protocol-matched client. Current clients must appear through current discovery.
+if [[ "$CLIENT_PACKAGE" == "alvr.client.monado" ]]; then
+  STALE="$(curl -fsS -H 'X-ALVR: 1' http://127.0.0.1:8082/api/xr/clients 2>/dev/null || true)"
+  if python3 -c 'import json,sys; j=json.load(sys.stdin); raise SystemExit(0 if any(k.startswith("legacy-") for k in j.get("clients",{})) else 1)' <<<"$STALE" 2>/dev/null; then
+    step Registry "ignoring stale legacy entry"
+  fi
+fi
+
 TRUSTED=0
 for i in 1 2 3; do
-  if QUEST_IP="$QUEST_IP" bash "$S/trust-alvr-client.sh" >/dev/null 2>&1; then TRUSTED=1; break; fi
+  if XR_CLIENT_PACKAGE="$CLIENT_PACKAGE" QUEST_IP="$QUEST_IP" bash "$S/trust-alvr-client.sh" >/dev/null 2>&1; then TRUSTED=1; break; fi
   sleep 1
 done
-[[ "$TRUSTED" -eq 1 ]] || { QUEST_IP="$QUEST_IP" bash "$S/trust-alvr-client.sh" || true; fail Trust "client not identified after 3 attempts"; }
+[[ "$TRUSTED" -eq 1 ]] || { XR_CLIENT_PACKAGE="$CLIENT_PACKAGE" QUEST_IP="$QUEST_IP" bash "$S/trust-alvr-client.sh" || true; fail Trust "current client not identified after 3 attempts"; }
 step Trust OK
 sleep 3
 
