@@ -10,7 +10,6 @@ LOG="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_connect-xr-wifi.log"
 exec > >(tee "$LOG") 2>&1
 
 echo "=== Intel XR Wi-Fi setup ==="
-echo "Log: $LOG"
 echo "Quest IP: $QUEST_IP"
 
 command -v nmcli >/dev/null || { echo "ERROR: nmcli is not installed."; exit 1; }
