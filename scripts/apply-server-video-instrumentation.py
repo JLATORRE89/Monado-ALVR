@@ -42,6 +42,46 @@ def patch_once(path: Path, old: str, new: str, marker: str) -> bool:
 
 
 root = project_root()
+
+
+
+def cleanup_companion_warnings() -> None:
+    """Fix warning-producing companion code without changing ABI-sensitive bindings."""
+    renderer = root / "src" / "alvr_render" / "src" / "Renderer.hpp"
+    utils = root / "src" / "alvr_render" / "src" / "utils.hpp"
+
+    if renderer.is_file():
+        text = renderer.read_text()
+        old = """        return AlvrVkExport {
+            .sem = timelineSem,
+        };"""
+        new = """        AlvrVkExport out {};
+        out.sem = timelineSem;
+        return out;"""
+        if old in text:
+            renderer.write_text(text.replace(old, new, 1))
+            print(f"[cleanup] {renderer}: initialize AlvrVkExport")
+        elif "AlvrVkExport out {};" in text:
+            print(f"[already cleaned] {renderer}: AlvrVkExport")
+
+    if utils.is_file():
+        text = utils.read_text()
+        # Optional::get() currently falls off the end after assert(false), which
+        # triggers -Wreturn-type and is undefined behavior in release builds.
+        old = """        assert(false);
+    }"""
+        new = """        assert(false);
+        std::abort();
+    }"""
+        if old in text and "std::abort();" not in text:
+            if "#include <cstdlib>" not in text:
+                text = text.replace("#include ", "#include <cstdlib>\n#include ", 1)
+            utils.write_text(text.replace(old, new, 1))
+            print(f"[cleanup] {utils}: make Optional::get() non-returning")
+        elif "std::abort();" in text:
+            print(f"[already cleaned] {utils}: Optional::get()")
+
+cleanup_companion_warnings()
 alvr_render = root / "src" / "alvr_render" / "src" / "Encoder.cpp"
 
 if not alvr_render.is_file():
