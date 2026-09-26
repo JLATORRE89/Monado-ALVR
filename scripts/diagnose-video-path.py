@@ -90,13 +90,40 @@ if tcpdump:
     lines.append(p.stdout or "")
 note(f"[PC -> Quest UDP/9944] {packets} packets captured")
 
-# Collect focused decoder lifecycle logs.
+# Collect Quest video logs. Prefer explicit client instrumentation when present.
 p=run([adb,"logcat","-d","-v","time",f"--pid={pid}"])
 raw=p.stdout or ""
-pat=re.compile(r"decoder|mediacodec|codec|\bnal\b|\bidr\b|video|frame.*received|frame.*decoded|surface|swapchain|csd|\bsps\b|\bpps\b|\bvps\b|stream starting|connected to server",re.I)
-decoder=[x for x in raw.splitlines() if pat.search(x)]
-lines.append("=== QUEST VIDEO LOGS ===\n"+"\n".join(decoder[-250:]))
-note(f"[Quest decoder/video log matches] {len(decoder)}")
+explicit=[x for x in raw.splitlines() if "[INTEL-XR-VIDEO]" in x]
+fallback_pat=re.compile(r"decoder|mediacodec|codec|\\bnal\\b|\\bidr\\b|video|frame.*received|frame.*decoded|surface|swapchain|csd|\\bsps\\b|\\bpps\\b|\\bvps\\b|stream starting|connected to server",re.I)
+fallback=[x for x in raw.splitlines() if fallback_pat.search(x)]
+video_logs=explicit if explicit else fallback
+lines.append("=== QUEST VIDEO LOGS ===\\n"+"\\n".join(video_logs[-400:]))
+note(f"[Quest explicit video events] {len(explicit)}")
+if not explicit:
+    note(f"[Quest fallback video log matches] {len(fallback)}")
+    note("[Instrumentation] NOT PRESENT — checkpoint results below are UNKNOWN until the Quest APK contains [INTEL-XR-VIDEO] logging.")
+
+def marked(*terms):
+    if not explicit: return None
+    return any(all(t.lower() in line.lower() for t in terms) for line in explicit)
+
+checks=[
+ ("Quest video packets", marked("packet","received")),
+ ("Complete encoded frame", marked("complete","frame")),
+ ("Codec config", marked("codec","config")),
+ ("Keyframe/IDR", True if marked("idr") else (True if marked("keyframe") else False) if explicit else None),
+ ("Decoder created", True if marked("decoder","created") else (True if marked("decoder","create","success") else False) if explicit else None),
+ ("Decoder configured", marked("decoder","configured")),
+ ("Decoder started", marked("decoder","started")),
+ ("Decoder input", True if marked("decoder","input") else (True if marked("submitted","decoder") else False) if explicit else None),
+ ("Decoder output", marked("decoder","output")),
+ ("Displayed/presented frame", True if marked("presented","frame") else (True if marked("displayed","frame") else False) if explicit else None),
+]
+for name,value in checks:
+    note(f"[{name}] "+("YES" if value is True else "NO" if value is False else "UNKNOWN"))
+
+breakpoint=next((name for name,value in checks if value is False),None) if explicit else None
+note(f"[VIDEO PATH BREAK] {breakpoint if breakpoint else 'UNKNOWN' if not explicit else 'none observed'}")
 
 # State from ALVR registry.
 p=run(["curl","-fsS","-H","X-ALVR: 1","http://127.0.0.1:8082/api/xr/clients"])
@@ -111,16 +138,15 @@ proc.terminate()
 try: proc.wait(timeout=3)
 except subprocess.TimeoutExpired: proc.kill()
 
-# Classification, intentionally evidence-based.
-decoder_signal=any(re.search(r"decoder|mediacodec|decoded|csd|\bsps\b|\bpps\b|\bvps\b",x,re.I) for x in decoder)
-if packets>0 and not decoder_signal:
-    verdict="NETWORK VIDEO TRAFFIC PRESENT; DECODER START/CONFIG NOT OBSERVED — inspect Quest receive/config/MediaCodec path."
-elif packets>0 and decoder_signal:
-    verdict="NETWORK AND DECODER SIGNALS PRESENT — inspect decoded-frame import/OpenXR presentation next."
-elif packets==0:
-    verdict="NO PC→QUEST VIDEO TRAFFIC OBSERVED — inspect server encode/forward path or capture interface."
+# Classification. Explicit instrumentation wins; generic logs are never treated as decoder proof.
+if explicit and breakpoint:
+    verdict=f"EXPLICIT QUEST VIDEO INSTRUMENTATION FOUND; FIRST FAILED CHECKPOINT: {breakpoint}."
+elif explicit:
+    verdict="EXPLICIT QUEST VIDEO INSTRUMENTATION FOUND; no failed checkpoint observed in this sample."
+elif packets>0:
+    verdict="NETWORK VIDEO TRAFFIC PRESENT; QUEST VIDEO CHECKPOINTS UNKNOWN because instrumented APK is not installed yet."
 else:
-    verdict="INCONCLUSIVE."
+    verdict="NO PC→QUEST VIDEO TRAFFIC OBSERVED; inspect server encode/forward path or capture interface."
 note("[Verdict] "+verdict)
-out.write_text("\n".join(lines)+"\n",encoding="utf-8")
+out.write_text("\\n".join(lines)+"\\n",encoding="utf-8")
 note(f"[Log] {out}")
