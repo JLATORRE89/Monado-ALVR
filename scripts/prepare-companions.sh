@@ -92,6 +92,40 @@ if 'clients.entry(format!("legacy-{}"' not in s:
 p.write_text(s)
 PY
 
+echo "=== Enable TEST-ONLY legacy ALVR protocol compatibility ==="
+python3 - "$ALVR/alvr/server_core/src/connection.rs" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text()
+old='''            if info.client_protocol_id != alvr_common::protocol_id_u64() {
+                warn!(
+                    "Trusted client is incompatible! Expected protocol ID: {}, found: {}",
+                    alvr_common::protocol_id_u64(),
+                    info.client_protocol_id,
+                );
+
+                return Ok(());
+            }'''
+new='''            if info.client_protocol_id != alvr_common::protocol_id_u64() {
+                let legacy_test = std::env::var("ALVR_LEGACY_PROTOCOL_TEST")
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false);
+                warn!(
+                    "Trusted client protocol mismatch! Expected protocol ID: {}, found: {}. Legacy test mode: {}",
+                    alvr_common::protocol_id_u64(),
+                    info.client_protocol_id,
+                    legacy_test,
+                );
+                if !legacy_test {
+                    return Ok(());
+                }
+                warn!("TEST ONLY: continuing handshake despite ALVR protocol mismatch");
+            }'''
+if old in s: s=s.replace(old,new,1)
+elif 'ALVR_LEGACY_PROTOCOL_TEST' not in s: raise SystemExit("protocol check insertion point missing")
+p.write_text(s)
+PY
+
 echo "=== Apply Monado/ALVR ABI compatibility ==="
 for f in "$ALVR_RENDER/src/Encoder.cpp" "$ALVR_RENDER/src/EventManager.hpp"; do
     sed -i       -e 's/ALVR_EVENT_VIEWS_PARAMS/ALVR_EVENT_LOCAL_VIEW_PARAMS/g'       -e 's/event\.views_params/event.local_view_params/g'       "$f"
