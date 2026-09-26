@@ -3,6 +3,7 @@ set -Eeuo pipefail
 ROOT="${INTEL_XR_ROOT:-/ai/intel-xr-prototype}"
 S="$ROOT/src/Monado-ALVR/scripts"; QUEST_IP="${QUEST_IP:-192.168.86.168}"
 SERVICE="$ROOT/build/monado-alvr/src/xrt/targets/service/monado-service"
+CLIENT_PACKAGE="${XR_CLIENT_PACKAGE:-}"
 source "$S/xr-log.sh"; xr_init_log "xr-session"
 step(){ printf '[%-24s] %s\n' "$1" "$2"; }
 fail(){ step "$1" "FAIL"; echo "ERROR: $2"; exit 1; }
@@ -27,7 +28,14 @@ step Transport OK
 
 if bash "$S/xr-client-ui.sh" ensure >/dev/null 2>&1; then step "Client UI" "OK :8083"; else step "Client UI" WARN; fi
 adb start-server >/dev/null 2>&1 || true
-adb shell pidof alvr.client.stable >/dev/null 2>&1 || adb shell monkey -p alvr.client.stable -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+if [[ -z "$CLIENT_PACKAGE" ]]; then
+  if adb shell pm path alvr.client.monado >/dev/null 2>&1; then CLIENT_PACKAGE=alvr.client.monado
+  elif adb shell pm path alvr.client.stable >/dev/null 2>&1; then CLIENT_PACKAGE=alvr.client.stable
+  else fail Client "no ALVR client package installed"; fi
+fi
+CLIENT_VERSION="$(adb shell dumpsys package "$CLIENT_PACKAGE" 2>/dev/null | sed -n 's/.*versionName=//p' | head -1 | tr -d '\r')"
+step Client "$CLIENT_PACKAGE ${CLIENT_VERSION:-unknown}"
+adb shell pidof "$CLIENT_PACKAGE" >/dev/null 2>&1 || adb shell monkey -p "$CLIENT_PACKAGE" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
 sleep 2
 
 if [[ "$TRANSPORT" == wifi ]]; then
