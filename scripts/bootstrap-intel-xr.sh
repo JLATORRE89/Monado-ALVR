@@ -7,7 +7,7 @@ MONADO="$SRC/Monado-ALVR"
 ALVR="$SRC/alvr-monado"
 ALVR_RENDER="$SRC/alvr_render"
 LOGDIR="$ROOT/logs"
-LOG="$LOGDIR/bootstrap-intel-xr.log"
+LOG="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_bootstrap-intel-xr.log"
 
 [[ $EUID -ne 0 ]] || { echo "ERROR: run as your normal desktop user, not root."; exit 1; }
 
