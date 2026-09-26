@@ -38,42 +38,20 @@ echo "Transport: $TRANSPORT"
 echo
 echo "[4/7] Firewall + transport"
 if [[ "$TRANSPORT" == wifi ]]; then
-  echo "Checking host firewall requirements..."
+  echo "Checking host firewall..."
   if command -v ufw >/dev/null 2>&1; then
-    UFW_STATUS="$(sudo -n ufw status 2>/dev/null || true)"
-    if [[ -z "$UFW_STATUS" ]]; then
-      echo "NOTE: firewall inspection needs sudo. Run:"
-      echo "  sudo ufw status numbered"
-      echo "Then rerun this support script."
-      exit 1
-    elif grep -q '^Status: active' <<<"$UFW_STATUS"; then
-      FIREWALL_OK=1
-      QUEST_NET="${QUEST_IP%.*}.0/24"
-      # Parse plain "ufw status" output rather than its presentation-oriented
-      # numbered form. Accept an exact-host rule or a covering /24 rule.
-      UFW_PLAIN="$(sudo -n ufw status 2>/dev/null || true)"
-      for port in 9943 9944; do
-        if awk -v port="${port}/udp" -v host="$QUEST_IP" -v net="$QUEST_NET" '
-          $1 == port && $2 == "ALLOW" && $3 == "IN" && ($4 == host || $4 == net) { found=1 }
-          END { exit(found ? 0 : 1) }
-        ' <<<"$UFW_PLAIN"; then
-          echo "PASS: UDP $port allowed from Quest ($QUEST_IP or $QUEST_NET)"
-        else
-          FIREWALL_OK=0
-          echo "MISSING: UDP $port allow rule covering Quest $QUEST_IP"
-          echo "Fix with:"
-          echo "  sudo ufw allow from $QUEST_IP to any port $port proto udp comment 'ALVR Quest'"
-        fi
-      done
-      if [[ "$FIREWALL_OK" -ne 1 ]]; then
-        echo "Firewall prerequisites are incomplete; not attempting ALVR connection."
-        exit 1
-      fi
-    else
-      echo "UFW is inactive; no UFW rule required."
-    fi
+    # Do not gate the connection on parsing UFW's human-formatted output.
+    # UFW syntax/output varies; report status and test the actual transport below.
+    sudo -n ufw status 2>/dev/null || {
+      echo "NOTE: unable to inspect UFW non-interactively."
+      echo "Manual check: sudo ufw status numbered"
+    }
+    echo "Required ALVR Wi-Fi rules, if UFW is active:"
+    echo "  sudo ufw allow from $QUEST_IP to any port 9943 proto udp comment 'ALVR Quest'"
+    echo "  sudo ufw allow from $QUEST_IP to any port 9944 proto udp comment 'ALVR Quest'"
+    echo "Firewall status is informational; continuing to transport diagnostics."
   else
-    echo "ufw not installed; skipping UFW-specific check."
+    echo "ufw not installed."
   fi
 fi
 
