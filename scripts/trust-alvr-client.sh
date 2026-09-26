@@ -8,7 +8,6 @@ API="${ALVR_API:-http://127.0.0.1:8082}"
 exec > >(tee "$LOG") 2>&1
 
 echo "=== Trust ALVR client ==="
-echo "Log: $LOG"
 echo "API: $API"
 
 SESSION="$(curl -fsS -H 'X-ALVR: 1' "$API/api/session/" || true)"
