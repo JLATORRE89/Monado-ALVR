@@ -63,7 +63,8 @@ else
 fi
 
 echo
-echo "[5/7] ALVR client"
+echo "[5/7] ALVR client + management UI"
+bash "$S/xr-client-ui.sh" ensure || true
 adb start-server
 adb shell pidof alvr.client.stable >/dev/null 2>&1 || adb shell monkey -p alvr.client.stable -c android.intent.category.LAUNCHER 1
 sleep 3
@@ -94,6 +95,14 @@ if [[ "$TRANSPORT" == wifi ]]; then
     echo "Then rerun this workflow."
     exit 1
   fi
+fi
+
+echo
+echo "Client registry:"
+if CLIENTS="$(curl -fsS -H 'X-ALVR: 1' http://127.0.0.1:8082/api/xr/clients 2>/dev/null)"; then
+  printf '%s\n' "$CLIENTS" | python3 -m json.tool || true
+else
+  echo "NOTE: enhanced client-registry API unavailable. Rebuild the feature branch before testing."
 fi
 
 echo
