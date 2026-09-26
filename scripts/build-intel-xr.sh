@@ -25,6 +25,10 @@ for d in "$MONADO" "$ALVR_RENDER" "$ALVR"; do
 done
 
 echo
+echo "=== Prepare pinned companion sources ==="
+bash "$MONADO/scripts/prepare-companions.sh"
+
+echo
 echo "=== Source revisions ==="
 git -C "$MONADO" log -1 --oneline
 git -C "$ALVR_RENDER" log -1 --oneline
@@ -63,7 +67,7 @@ grep -nE 'ALVR_EVENT_(VIEWS_PARAMS|LOCAL_VIEW_PARAMS)|views_params|local_view_pa
 
 echo
 echo "=== Verify ABI compatibility ==="
-if grep -RniE 'ALVR_EVENT_VIEWS_PARAMS|views_params' \
+if grep -RniE 'ALVR_EVENT_VIEWS_PARAMS|event\.views_params' \
     "$MONADO/src/xrt/drivers/alvr" "$ALVR_RENDER/src"; then
     echo "ERROR: stale VIEWS_PARAMS ABI references remain."
     exit 1
