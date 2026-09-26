@@ -118,6 +118,31 @@ elif 'ALVR mDNS resolved:' not in s:
 p.write_text(s)
 PY
 
+echo "=== Add current-client direct-IP fallback ==="
+python3 - "$ALVR/alvr/server_core/src/sockets.rs" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text()
+needle='''        Ok(clients)
+    }
+}'''
+insert='''        // Current-client direct-IP fallback. This only substitutes discovery;
+        // the normal trust and ALVR protocol handshake still run afterwards.
+        if let Ok(ip) = std::env::var("ALVR_DIRECT_CLIENT_IP") {
+            if let Ok(address) = ip.parse::<IpAddr>() {
+                clients.entry(format!("direct-{address}")).or_insert(address);
+            }
+        }
+
+        Ok(clients)
+    }
+}'''
+if 'ALVR_DIRECT_CLIENT_IP' not in s:
+    if needle not in s: raise SystemExit("direct-IP insertion point missing")
+    s=s.replace(needle,insert,1)
+p.write_text(s)
+PY
+
 echo "=== Enable TEST-ONLY legacy ALVR protocol compatibility ==="
 python3 - "$ALVR/alvr/server_core/src/connection.rs" <<'PY'
 from pathlib import Path
