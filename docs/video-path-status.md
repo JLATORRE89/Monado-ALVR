@@ -38,15 +38,21 @@ Therefore MediaCodec is not the current investigation target.
 
 The client successfully enters ALVR streaming mode, but the Quest-side subscribed video receiver and decoder-config control path have not produced an event.
 
-Next investigation is server-side:
+Server-side checkpoints are now prepared:
 
-1. frame received from Monado
-2. frame submitted to encoder
-3. encoded frame / IDR produced
-4. decoder configuration sent
-5. video packet handed to ALVR stream transport
+1. `FRAME_RECEIVED_FROM_MONADO` — Monado ALVR compositor target.
+2. `ENCODER_INPUT` — alvr_render receives the compositor image for encoding.
+3. `ENCODED_FRAME` — alvr_render obtains an encoded frame and records IDR state.
+4. `DECODER_CONFIG_SENT` / `DECODER_CONFIG_UNAVAILABLE_ON_IDR_REQUEST` — ALVR server response to the Quest IDR request.
+5. `VIDEO_PACKET_SENT` — ALVR server hands the first encoded video packet to the stream transport.
 
-Only after those server checkpoints are known should investigation move back to the Quest receiver or decoder.
+The Monado target marker is in this repository. The ALVR transport/config markers are on
+`JLATORRE89/ALVR:intel-xr-client-diag`. The alvr_render markers are applied locally with
+`scripts/apply-server-video-instrumentation.py`.
+
+The next controlled run should compare these server markers with the Quest's
+`STREAMING_STARTED` and `VIDEO_PACKET_RECEIVED` markers. Only after those checkpoints are
+known should investigation move back to the Quest decoder.
 
 ## Testing rules
 
