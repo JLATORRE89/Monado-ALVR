@@ -108,3 +108,12 @@ vk_layer_settings.txt
 
 # Ignore local pyenv version file
 .python-version
+
+# Intel XR local diagnostics and generated logs
+logs/
+*-debug.txt
+monado-crash-*.txt
+project-files.txt
+*.pre-vk-debug
+*.pre-extension-source-debug
+*.pre-factory-fix
