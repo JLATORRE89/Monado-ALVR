@@ -1,0 +1,15 @@
+{
+  "paths": {
+    "root": "/ai/intel-xr-prototype",
+    "android_home": "/ai/android-sdk",
+    "java_home": "/usr/lib/jvm/java-17-openjdk-amd64"
+  },
+  "android": {
+    "ndk_version": "25.1.8937393",
+    "rust_target": "aarch64-linux-android",
+    "platform_api": 32
+  },
+  "alvr": {
+    "legacy_protocol_test": true
+  }
+}
