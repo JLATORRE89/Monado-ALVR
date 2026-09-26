@@ -73,9 +73,12 @@ echo "[6/7] ALVR discovery/transport"
 if [[ "$TRANSPORT" == wifi ]]; then
   WIFI_DEV="$(ip route get "$QUEST_IP" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')"
   echo "Quest route interface: ${WIFI_DEV:-unknown}"
-  echo "Workstation sockets before discovery:"
-  ss -lntup | grep -E '9943|9944|8082|5353|monado' || true
-  echo
+  SOCKETS="$(ss -lntup 2>/dev/null || true)"
+  if grep -qE '[:](9943|9944)[[:space:]]' <<<"$SOCKETS"; then
+    echo "PASS: ALVR transport socket(s) 9943/9944 are open."
+  else
+    echo "NOTE: no bound 9943/9944 socket is currently visible; checking packet traffic next."
+  fi
   echo "Sampling packets involving Quest $QUEST_IP for 8 seconds..."
   if command -v tcpdump >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
     PACKETS="$(timeout 8 sudo -n tcpdump -ni "${WIFI_DEV:-any}" "host $QUEST_IP and (udp or tcp)" 2>&1 || true)"
