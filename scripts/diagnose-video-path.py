@@ -33,7 +33,7 @@ if "device" not in state: raise SystemExit("ERROR: no authorized ADB device")
 # Fresh launch. User can now keep the headset on for the whole experiment.
 cmd([adb,"shell","input","keyevent","KEYCODE_WAKEUP"])
 cmd([adb,"shell","am","force-stop","alvr.client.monado"]); time.sleep(1)
-cmd([adb,"logcat","-c"])
+cmd([adb,"logcat","-c"])\n# Clear completion marker from any prior diagnostic.\ncmd([adb,"shell","rm","-f","/sdcard/intel-xr-diagnostic.done"])
 _,launch=cmd([adb,"shell","monkey","-p","alvr.client.monado","-c","android.intent.category.LAUNCHER","1"])
 pid=""
 for _ in range(20):
@@ -152,7 +152,10 @@ elif breakpoint:
     verdict=f"FIRST MISSING EXPLICIT VIDEO CHECKPOINT: {breakpoint}."
 else:
     verdict="ALL INSTRUMENTED VIDEO CHECKPOINTS OBSERVED."
-note("[Verdict] "+verdict)
+note("[Verdict] "+verdict)\n\n# Signal the Quest client only after all evidence has been collected.
+cmd([adb,"shell","touch","/sdcard/intel-xr-diagnostic.done"])
+note("[Headset message] TEST COMPLETE - YOU MAY REMOVE HEADSET")
+time.sleep(3)
 out.write_text("\n".join(lines)+"\n",encoding="utf-8")
 note(f"[Log] {out}")
 for p in shots: note(f"[Screenshot] {p}")
