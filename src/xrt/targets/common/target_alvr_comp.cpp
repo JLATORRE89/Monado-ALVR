@@ -263,11 +263,11 @@ alvr_target_calc_frame_pacing(comp_target *ct,
 	// NOTE: That's the next vsync that will be performed, we want to aim for the one after it
 	alvr_duration_until_next_vsync(&nextVsync);
 
-	std::cout << "duration until next vsync: " << nextVsync << "\n";
+	// Intel XR: suppress per-frame pacing spam during video-path diagnostics.
 
 	nextVsync += os_monotonic_get_ns();
 
-	std::cout << "next vsync time: " << nextVsync << "\n";
+	
 
 	// timed for 120 fps
 	*out_wake_up = nextVsync;
@@ -276,7 +276,7 @@ alvr_target_calc_frame_pacing(comp_target *ct,
 	*out_present_slop = 8;
 	*out_predicted_display = nextVsync + 16;
 
-	std::cout << "calculated wake up time: " << *out_wake_up << "\n";
+	
 }
 
 void
