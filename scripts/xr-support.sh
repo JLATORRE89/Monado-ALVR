@@ -5,14 +5,12 @@ S="$ROOT/src/Monado-ALVR/scripts"
 QUEST_IP="${QUEST_IP:-192.168.86.168}"
 SERVICE="$ROOT/build/monado-alvr/src/xrt/targets/service/monado-service"
 LOGDIR="$ROOT/logs"; mkdir -p "$LOGDIR"
-STAMP="$(date +%Y-%m-%d_%H-%M-%S)"
-LOG="$LOGDIR/${STAMP}_xr-support.log"
-SERVICE_LOG="$LOGDIR/${STAMP}_monado-service.log"
-exec > >(tee "$LOG") 2>&1
+source "$S/xr-log.sh"
+xr_init_log "xr-session"
 
 echo "=== Intel XR support workflow ==="
 echo "Quest: $QUEST_IP"
-echo "Log: $LOG"
+echo "Session log: $XR_SESSION_LOG"
 
 echo
 echo "[1/6] Runtime/artifacts"
@@ -38,7 +36,19 @@ fi
 echo "Transport: $TRANSPORT"
 
 echo
-echo "[4/6] Configure transport"
+echo "[4/7] Firewall + transport"
+if [[ "$TRANSPORT" == wifi ]]; then
+  echo "Checking host firewall..."
+  if command -v ufw >/dev/null 2>&1 && sudo ufw status 2>/dev/null | grep -q '^Status: active'; then
+    QUEST_NET="${QUEST_IP%.*}.0/24"
+    echo "UFW active; allowing ALVR control/stream ports from $QUEST_NET"
+    sudo ufw allow from "$QUEST_NET" to any port 9943 proto udp comment 'Intel XR ALVR control' >/dev/null
+    sudo ufw allow from "$QUEST_NET" to any port 9944 proto udp comment 'Intel XR ALVR stream' >/dev/null
+  else
+    echo "UFW is not active (or unavailable); no UFW rule needed."
+  fi
+fi
+
 if [[ "$TRANSPORT" == usb ]]; then
   bash "$S/setup-usb-alvr.sh"
 else
@@ -47,13 +57,13 @@ else
 fi
 
 echo
-echo "[5/6] ALVR client"
+echo "[5/7] ALVR client"
 adb start-server
 adb shell pidof alvr.client.stable >/dev/null 2>&1 || adb shell monkey -p alvr.client.stable -c android.intent.category.LAUNCHER 1
 sleep 3
 
 echo
-echo "[6/6] Discover/trust client"
+echo "[6/7] Discover/trust client"
 TRUSTED=0
 for i in $(seq 1 15); do
   if QUEST_IP="$QUEST_IP" bash "$S/trust-alvr-client.sh"; then TRUSTED=1; break; fi
@@ -68,7 +78,8 @@ done
 }
 
 echo
+echo "[7/7] Final health\n"bash "$S/monado-service.sh" status
+
 echo "XR support workflow complete."
 echo "Monado PID: $MONADO_PID"
-[[ -f "$SERVICE_LOG" ]] && echo "Monado log: $SERVICE_LOG"
 echo "Watch the headset for Successful connection / streaming."
