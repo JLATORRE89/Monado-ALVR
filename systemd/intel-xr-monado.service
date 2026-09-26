@@ -14,6 +14,8 @@ Environment=XRT_NO_STDIN=true
 Environment=ALVR_LEGACY_PROTOCOL_TEST=1
 # Current-client discovery fallback while native mDNS resolution is unfinished.
 Environment=ALVR_DIRECT_CLIENT_IP=192.168.86.168
+# Diagnostic only: set to 1 to overwrite encoder input with bright magenta.
+Environment=XR_VIDEO_TEST_PATTERN=1
 ExecStart=/ai/intel-xr-prototype/build/monado-alvr/src/xrt/targets/service/monado-service
 Restart=on-failure
 RestartSec=5
