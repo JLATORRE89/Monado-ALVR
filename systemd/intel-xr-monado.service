@@ -8,7 +8,9 @@ Type=simple
 Environment=XRT_LOG=debug
 ExecStart=/ai/intel-xr-prototype/build/monado-alvr/src/xrt/targets/service/monado-service
 Restart=on-failure
-RestartSec=2
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Install]
 WantedBy=default.target
