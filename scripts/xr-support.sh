@@ -38,14 +38,35 @@ echo "Transport: $TRANSPORT"
 echo
 echo "[4/7] Firewall + transport"
 if [[ "$TRANSPORT" == wifi ]]; then
-  echo "Checking host firewall..."
-  if command -v ufw >/dev/null 2>&1 && sudo ufw status 2>/dev/null | grep -q '^Status: active'; then
-    QUEST_NET="${QUEST_IP%.*}.0/24"
-    echo "UFW active; allowing ALVR control/stream ports from $QUEST_NET"
-    sudo ufw allow from "$QUEST_NET" to any port 9943 proto udp comment 'Intel XR ALVR control' >/dev/null
-    sudo ufw allow from "$QUEST_NET" to any port 9944 proto udp comment 'Intel XR ALVR stream' >/dev/null
+  echo "Checking host firewall requirements..."
+  if command -v ufw >/dev/null 2>&1; then
+    UFW_STATUS="$(sudo -n ufw status 2>/dev/null || true)"
+    if [[ -z "$UFW_STATUS" ]]; then
+      echo "NOTE: firewall inspection needs sudo. Run:"
+      echo "  sudo ufw status numbered"
+      echo "Then rerun this support script."
+      exit 1
+    elif grep -q '^Status: active' <<<"$UFW_STATUS"; then
+      FIREWALL_OK=1
+      for port in 9943 9944; do
+        if ! grep -E "^[[[:space:]]*[0-9]+][[:space:]]+${port}/udp[[:space:]]+ALLOW IN[[:space:]]+${QUEST_IP}([[:space:]]|$)" <<<"$UFW_STATUS" >/dev/null; then
+          FIREWALL_OK=0
+          echo "MISSING: UDP $port allow rule for Quest $QUEST_IP"
+          echo "Fix with:"
+          echo "  sudo ufw allow from $QUEST_IP to any port $port proto udp comment 'ALVR Quest'"
+        else
+          echo "PASS: UDP $port allowed from $QUEST_IP"
+        fi
+      done
+      if [[ "$FIREWALL_OK" -ne 1 ]]; then
+        echo "Firewall prerequisites are incomplete; not attempting ALVR connection."
+        exit 1
+      fi
+    else
+      echo "UFW is inactive; no UFW rule required."
+    fi
   else
-    echo "UFW is not active (or unavailable); no UFW rule needed."
+    echo "ufw not installed; skipping UFW-specific check."
   fi
 fi
 
