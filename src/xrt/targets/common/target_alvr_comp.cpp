@@ -1,4 +1,4 @@
-#include <thread>
+#include <thread>\n#include <cstdio>
 #include <iostream>
 
 extern "C" {
@@ -217,7 +217,14 @@ alvr_target_present(comp_target *ct,
 	};
 
 
-	printf("present\n");
+	static bool intel_xr_frame_received_logged = false;
+	if (!intel_xr_frame_received_logged) {
+		std::fprintf(stderr,
+		             "[INTEL-XR-SERVER] FRAME_RECEIVED_FROM_MONADO image=%u timeline=%llu\n",
+		             img_idx,
+		             static_cast<unsigned long long>(timeline_semaphore_value));
+		intel_xr_frame_received_logged = true;
+	}
 
 	base.enc.get().present(img_idx, timeline_semaphore_value, viewInfo);
 
