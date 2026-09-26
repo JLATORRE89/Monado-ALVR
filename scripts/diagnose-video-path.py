@@ -36,13 +36,36 @@ if "device" not in state: raise SystemExit("ERROR: no authorized ADB device")
 cmd([adb,"shell","input","keyevent","KEYCODE_WAKEUP"]); time.sleep(1)
 cmd([adb,"shell","am","force-stop","alvr.client.monado"]); time.sleep(1)
 cmd([adb,"logcat","-c"])
-cmd([adb,"shell","monkey","-p","alvr.client.monado","-c","android.intent.category.LAUNCHER","1"])
-time.sleep(4)
+_,launch=cmd([adb,"shell","monkey","-p","alvr.client.monado","-c","android.intent.category.LAUNCHER","1"])
+if "Events injected: 1" not in launch:
+    note("[Quest launch] monkey did not confirm launch")
+
+pid=""
+for _ in range(15):
+    _,p=cmd([adb,"shell","pidof","alvr.client.monado"])
+    pid=p.strip()
+    if pid: break
+    time.sleep(1)
+
+if not pid:
+    _,resolved=cmd([adb,"shell","cmd","package","resolve-activity","--brief","alvr.client.monado"])
+    component=resolved.strip().splitlines()[-1] if resolved.strip() else "alvr.client.monado/android.app.NativeActivity"
+    note(f"[Quest launch fallback] {component}")
+    cmd([adb,"shell","am","start","-W","-n",component])
+    for _ in range(10):
+        _,p=cmd([adb,"shell","pidof","alvr.client.monado"])
+        pid=p.strip()
+        if pid: break
+        time.sleep(1)
 
 _,power=cmd([adb,"shell","dumpsys","power"])
-wake=re.search(r"mWakefulness=(\w+)",power); note(f"[Quest power] {wake.group(1) if wake else 'Unknown'}")
-_,pid=cmd([adb,"shell","pidof","alvr.client.monado"]); pid=pid.strip(); note(f"[Quest PID] {pid or 'missing'}")
-if not pid: raise SystemExit("ERROR: ALVR client did not start")
+wake=re.search(r"mWakefulness=(\\w+)",power); note(f"[Quest power] {wake.group(1) if wake else 'Unknown'}")
+note(f"[Quest PID] {pid or 'missing'}")
+if not pid:
+    _,activities=cmd([adb,"shell","dumpsys","activity","activities"])
+    lines.append("=== QUEST ACTIVITY ON LAUNCH FAILURE ===\\n"+"\\n".join(x for x in activities.splitlines() if "alvr.client.monado" in x)[-6000:])
+    out.write_text("\\n".join(lines)+"\\n",encoding="utf-8")
+    raise SystemExit(f"ERROR: ALVR client did not start after launch retries. Log: {out}")
 
 # Start our deterministic OpenXR color source.
 test=REPO/"scripts/run-video-test.sh"
