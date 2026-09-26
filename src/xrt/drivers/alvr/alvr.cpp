@@ -33,6 +33,7 @@
 #include "xrt/xrt_results.h"
 
 #include <array>
+#include <cmath>
 #include <cstdlib>
 #include <stdio.h>
 #include <mutex>
@@ -292,16 +293,55 @@ alvr_hmd_create(void)
 
 	auto tracking_cb = [hmd](u64 ts_ns, AlvrDeviceMotion hmd_mot) {
 		auto xrel = xrt_rel_from_alvr_mot(hmd_mot);
+		auto &q = xrel.pose.orientation;
+
+		static bool intel_xr_first_tracking_sample_logged = false;
+		if (!intel_xr_first_tracking_sample_logged) {
+			HMD_INFO(hmd,
+			         "[INTEL-XR-TRACKING] FIRST_SAMPLE q=(%f,%f,%f,%f) ts=%llu",
+			         q.x,
+			         q.y,
+			         q.z,
+			         q.w,
+			         (unsigned long long)ts_ns);
+			intel_xr_first_tracking_sample_logged = true;
+		}
+
+		// A zero/NaN/Inf quaternion must never be marked valid or pushed into
+		// Monado's relation history. Startup ALVR samples can arrive before a
+		// usable head pose exists; keep the seeded identity relation until a
+		// valid orientation arrives.
+		const float q_norm_sq = q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
+		if (!std::isfinite(q_norm_sq) || q_norm_sq < 1.0e-6f) {
+			static bool intel_xr_invalid_tracking_logged = false;
+			if (!intel_xr_invalid_tracking_logged) {
+				HMD_WARN(hmd,
+				         "[INTEL-XR-TRACKING] REJECT_INVALID_SAMPLE q=(%f,%f,%f,%f) norm2=%f",
+				         q.x,
+				         q.y,
+				         q.z,
+				         q.w,
+				         q_norm_sq);
+				intel_xr_invalid_tracking_logged = true;
+			}
+			return;
+		}
+
+		// Normalize defensively before advertising orientation as valid.
+		const float inv_norm = 1.0f / std::sqrt(q_norm_sq);
+		q.x *= inv_norm;
+		q.y *= inv_norm;
+		q.z *= inv_norm;
+		q.w *= inv_norm;
 
 		int64_t xrt_now = os_monotonic_get_ns();
-		// static int64_t delta = std::abs(xrt_now - (int64_t)ts_ns);
-		// HMD_ERROR(hmd, "delta %lu", delta);
-
-		// HMD_ERROR(hmd, "got a tracking callback woo %f, %f, %f, %lu", xrel.pose.position.x,
-		//           xrel.pose.orientation.x, xrel.linear_velocity.x, ts_ns);
-
-		// TODO: Fix, actually measure latency
 		m_relation_history_push(hmd->relation_hist, &xrel, xrt_now - 60);
+
+		static bool intel_xr_valid_tracking_logged = false;
+		if (!intel_xr_valid_tracking_logged) {
+			HMD_INFO(hmd, "[INTEL-XR-TRACKING] ACCEPTED_VALID_SAMPLE");
+			intel_xr_valid_tracking_logged = true;
+		}
 	};
 	CallbackManager::get().registerCb<ALVR_EVENT_TRACKING_UPDATED>(std::move(tracking_cb));
 
