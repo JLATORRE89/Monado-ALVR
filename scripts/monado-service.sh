@@ -4,9 +4,9 @@ ROOT="${INTEL_XR_ROOT:-/ai/intel-xr-prototype}"
 UNIT_SRC="$ROOT/src/Monado-ALVR/systemd/intel-xr-monado.service"
 UNIT_DIR="$HOME/.config/systemd/user"
 UNIT="$UNIT_DIR/intel-xr-monado.service"
-LOGDIR="$ROOT/logs"; mkdir -p "$LOGDIR"
-LOG="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_monado-service-manager.log"
-exec > >(tee "$LOG") 2>&1
+LOGDIR="$ROOT/logs"
+source "$ROOT/src/Monado-ALVR/scripts/xr-log.sh"
+xr_init_log "$(basename "$0" .sh)"
 ACTION="${1:-status}"
 
 install_unit() {
