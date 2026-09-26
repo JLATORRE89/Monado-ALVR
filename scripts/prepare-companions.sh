@@ -92,6 +92,32 @@ if 'clients.entry(format!("legacy-{}"' not in s:
 p.write_text(s)
 PY
 
+echo "=== Harden ALVR mDNS address selection ==="
+python3 - "$ALVR/alvr/server_core/src/sockets.rs" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text()
+old='''                        let address = *info.get_addresses().iter().next().to_any()?;'''
+new='''                        let addresses = info.get_addresses();
+                        let address = addresses
+                            .iter()
+                            .copied()
+                            .find(IpAddr::is_ipv4)
+                            .or_else(|| addresses.iter().copied().next())
+                            .to_any()?;
+                        warn!(
+                            "ALVR mDNS resolved: hostname={}, addresses={:?}, selected={}",
+                            hostname,
+                            addresses,
+                            address
+                        );'''
+if old in s:
+    s=s.replace(old,new,1)
+elif 'ALVR mDNS resolved:' not in s:
+    raise SystemExit("mDNS address selection insertion point missing")
+p.write_text(s)
+PY
+
 echo "=== Enable TEST-ONLY legacy ALVR protocol compatibility ==="
 python3 - "$ALVR/alvr/server_core/src/connection.rs" <<'PY'
 from pathlib import Path
