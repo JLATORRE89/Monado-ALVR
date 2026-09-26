@@ -18,7 +18,26 @@ echo "=== ROUTE TO QUEST ==="
 ip route get "$QUEST_IP" || true
 echo
 echo "=== QUEST PING ==="
-ping -c 3 "$QUEST_IP" || true
+if ping -c 3 "$QUEST_IP"; then
+  echo "PASS: Quest is reachable."
+else
+  echo
+  echo "WARNING: Quest is not reachable at $QUEST_IP."
+  WIFI_HELPER="$ROOT/src/Monado-ALVR/scripts/connect-xr-wifi.sh"
+  if [[ -f "$WIFI_HELPER" ]]; then
+    if [[ -t 0 ]]; then
+      read -r -p "Configure workstation Wi-Fi for the Quest network now? [Y/n] " answer
+      case "${answer:-Y}" in
+        [Yy]*|"") bash "$WIFI_HELPER" ;;
+        *) echo "Wi-Fi configuration skipped." ;;
+      esac
+    else
+      echo "Run: bash $WIFI_HELPER"
+    fi
+  else
+    echo "Wi-Fi helper not found: $WIFI_HELPER"
+  fi
+fi
 echo
 echo "=== LISTENING ALVR/MONADO PORTS ==="
 ss -lntup | grep -E '9943|9944|9945|9946|9947|9948|5353|8082|alvr|monado' || echo "No matching listeners found."
