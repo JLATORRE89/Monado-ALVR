@@ -58,7 +58,29 @@ test -f "$ALVR/build/alvr_server_core/alvr_server_core.h" || {
 
 echo
 echo "=== ALVR generated ABI ==="
-grep -nE 'ALVR_EVENT_(VIEWS_PARAMS|LOCAL_VIEW_PARAMS)|views_params|local_view_params'     "$ALVR/build/alvr_server_core/alvr_server_core.h" || true
+grep -nE 'ALVR_EVENT_(VIEWS_PARAMS|LOCAL_VIEW_PARAMS)|views_params|local_view_params' \
+    "$ALVR/build/alvr_server_core/alvr_server_core.h" || true
+
+# The pinned ALVR monado branch generates LOCAL_VIEW_PARAMS, while the
+# historical alvr_render source names this event VIEWS_PARAMS. Keep the
+# compatibility shim local to the companion checkout.
+if grep -q 'ALVR_EVENT_LOCAL_VIEW_PARAMS' "$ALVR/build/alvr_server_core/alvr_server_core.h"; then
+    echo
+    echo "=== Apply ALVR ABI compatibility shim to alvr_render ==="
+    git -C "$ALVR_RENDER" reset --hard "$ALVR_RENDER_PIN"
+    grep -RIl 'ALVR_EVENT_VIEWS_PARAMS' "$ALVR_RENDER/src" 2>/dev/null | \
+        xargs -r sed -i 's/ALVR_EVENT_VIEWS_PARAMS/ALVR_EVENT_LOCAL_VIEW_PARAMS/g'
+    grep -RIl 'views_params' "$ALVR_RENDER/src" 2>/dev/null | \
+        xargs -r sed -i 's/views_params/local_view_params/g'
+fi
+
+echo
+echo "=== Verify ABI compatibility ==="
+if grep -RniE 'ALVR_EVENT_VIEWS_PARAMS|views_params' \
+    "$MONADO/src/xrt/drivers/alvr" "$ALVR_RENDER/src"; then
+    echo "ERROR: stale VIEWS_PARAMS ABI references remain."
+    exit 1
+fi
 
 echo
 echo "=== Configure Monado-ALVR ==="
@@ -68,7 +90,18 @@ cmake     -S "$MONADO"     -B "$BUILD"     -G Ninja     -DCMAKE_BUILD_TYPE=RelWi
 
 echo
 echo "=== Build Monado-ALVR ==="
+set +e
 cmake --build "$BUILD" --parallel "$(nproc)"
+BUILD_RC=$?
+set -e
+if [[ $BUILD_RC -ne 0 ]]; then
+    echo
+    echo "=== FIRST COMPILER/LINKER ERRORS ==="
+    grep -nE '(^|[[:space:]])(fatal error:|error:|undefined reference|FAILED:)' "$LOG" | head -40 || true
+    echo
+    echo "BUILD FAILED (exit $BUILD_RC). Full log: $LOG"
+    exit "$BUILD_RC"
+fi
 
 echo
 echo "=== Artifacts ==="
