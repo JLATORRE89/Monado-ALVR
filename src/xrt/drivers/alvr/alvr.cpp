@@ -276,12 +276,15 @@ alvr_hmd_create(void)
 
 	u_distortion_mesh_set_none(&hmd->base);
 
-	// Just put an initial identity value in the tracker
+	// Seed tracking with a valid identity quaternion. XRT_SPACE_RELATION_ZERO
+	// zeroes orientation too, which is not a valid quaternion and makes xrLocateViews
+	// fail before the first ALVR tracking sample arrives.
 	struct xrt_space_relation identity = XRT_SPACE_RELATION_ZERO;
+	identity.pose.orientation.w = 1.0f;
 	identity.relation_flags = (enum xrt_space_relation_flags)(XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT |
 	                                                          XRT_SPACE_RELATION_ORIENTATION_VALID_BIT);
-	// uint64_t now = os_monotonic_get_ns();
-	m_relation_history_push(hmd->relation_hist, &identity, 0);
+	m_relation_history_push(hmd->relation_hist, &identity, os_monotonic_get_ns());
+	HMD_INFO(hmd, "[INTEL-XR-TRACKING] SEEDED_VALID_IDENTITY");
 
 	// Setup variable tracker: Optional but useful for debugging
 	u_var_add_root(hmd, "ALVR HMD", true);
