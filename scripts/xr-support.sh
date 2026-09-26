@@ -71,10 +71,23 @@ for i in 1 2 3; do
 done
 [[ "$TRUSTED" -eq 1 ]] || { XR_CLIENT_PACKAGE="$CLIENT_PACKAGE" QUEST_IP="$QUEST_IP" bash "$S/trust-alvr-client.sh" || true; fail Trust "current client not identified after 3 attempts"; }
 step Trust OK
-sleep 3
 
-REG="$(curl -fsS -H 'X-ALVR: 1' http://127.0.0.1:8082/api/xr/clients 2>/dev/null || true)"
-STATE="$(python3 -c 'import json,sys; j=json.load(sys.stdin); cs=j.get("clients",{}); print(next(iter(cs.values()),{}).get("connection_state","Unknown"))' <<<"$REG" 2>/dev/null || echo Unknown)"
+# The registry can contain stale mDNS/legacy entries. Poll the identity matching
+# this Quest instead of sampling the first dictionary item.
+STATE=Unknown
+for _ in $(seq 1 12); do
+  REG="$(curl -fsS -H 'X-ALVR: 1' http://127.0.0.1:8082/api/xr/clients 2>/dev/null || true)"
+  STATE="$(python3 -c 'import json,sys
+j=json.load(sys.stdin); ip=sys.argv[1]; cs=j.get("clients",{})
+match=None
+for name,c in cs.items():
+    if c.get("current_ip")==ip or name=="direct-"+ip:
+        match=c; break
+print((match or {}).get("connection_state","Unknown"))
+' "$QUEST_IP" <<<"$REG" 2>/dev/null || echo Unknown)"
+  [[ "$STATE" == "Streaming" || "$STATE" == "Connected" ]] && break
+  sleep 1
+done
 step Handshake "$STATE"
 
 if [[ "$STATE" != "Streaming" && "$STATE" != "Connected" ]]; then
