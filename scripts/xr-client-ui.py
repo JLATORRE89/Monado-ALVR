@@ -11,6 +11,7 @@ EDITABLE={
  "alvr.legacy_protocol_test":bool,
  "network.quest_ip":str,"network.direct_ip_fallback":bool,"network.mdns":bool,
  "network.legacy_udp":bool,"network.usb":bool,
+ "video.test_pattern":bool,"video.test_pattern_mode":str,
 }
 def config_load(): return json.load(open(CONFIG))
 def config_save(data):
