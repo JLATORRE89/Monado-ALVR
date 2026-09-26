@@ -1,8 +1,8 @@
 #define XR_USE_GRAPHICS_API_VULKAN
 #define XR_USE_PLATFORM_XLIB
+#include <vulkan/vulkan.h>
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
-#include <vulkan/vulkan.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
