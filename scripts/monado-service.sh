@@ -43,15 +43,32 @@ case "$ACTION" in
  logs) journalctl --user -u intel-xr-monado.service -n "${2:-200}" --no-pager ;;
  crash)
    systemctl --user stop intel-xr-monado.service 2>/dev/null || true
-   CRASH_LOG="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_monado-coredump.log"
-   echo "Collecting latest Monado coredump: $CRASH_LOG"
-   if coredumpctl --user info monado-service >/dev/null 2>&1; then
-     coredumpctl --user debug monado-service --debugger-arguments="-batch -ex 'thread apply all bt 20'" 2>&1 | tee "$CRASH_LOG"
-   elif coredumpctl info monado-service >/dev/null 2>&1; then
-     coredumpctl debug monado-service --debugger-arguments="-batch -ex 'thread apply all bt 20'" 2>&1 | tee "$CRASH_LOG"
+   CRASH_LOG="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_monado-crash-debug.log"
+   echo "Collecting Monado crash diagnostics: $CRASH_LOG"
+   {
+     echo "=== systemd status ==="
+     systemctl --user --no-pager --full status intel-xr-monado.service || true
+     echo
+     echo "=== recent journal ==="
+     journalctl --user -u intel-xr-monado.service -n 200 --no-pager || true
+     echo
+     echo "=== coredump inventory ==="
+     coredumpctl list 2>/dev/null | grep -i monado || true
+   } | tee "$CRASH_LOG"
+   if coredumpctl info monado-service >/dev/null 2>&1; then
+     echo >>"$CRASH_LOG"; echo "=== coredump backtrace ===" | tee -a "$CRASH_LOG"
+     coredumpctl debug monado-service --debugger-arguments="-batch -ex 'thread apply all bt 20'" 2>&1 | tee -a "$CRASH_LOG"
    else
-     echo "ERROR: no Monado coredump found." | tee "$CRASH_LOG"
-     exit 1
+     echo >>"$CRASH_LOG"
+     echo "No retained systemd coredump. Running one controlled GDB reproduction." | tee -a "$CRASH_LOG"
+     systemctl --user stop intel-xr-monado.service 2>/dev/null || true
+     gdb -q -batch \
+       -ex "set pagination off" \
+       -ex "set environment XRT_LOG debug" \
+       -ex run \
+       -ex "thread apply all bt 20" \
+       --args "$ROOT/build/monado-alvr/src/xrt/targets/service/monado-service" \
+       2>&1 | tee -a "$CRASH_LOG"
    fi
    echo "Crash log: $CRASH_LOG"
    ;;
