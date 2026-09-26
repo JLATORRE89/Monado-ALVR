@@ -33,7 +33,9 @@ if "device" not in state: raise SystemExit("ERROR: no authorized ADB device")
 # Fresh launch. User can now keep the headset on for the whole experiment.
 cmd([adb,"shell","input","keyevent","KEYCODE_WAKEUP"])
 cmd([adb,"shell","am","force-stop","alvr.client.monado"]); time.sleep(1)
-cmd([adb,"logcat","-c"])\n# Clear completion marker from any prior diagnostic.\ncmd([adb,"shell","rm","-f","/sdcard/intel-xr-diagnostic.done"])
+cmd([adb,"logcat","-c"])
+# Clear completion marker from any prior diagnostic.
+cmd([adb,"shell","rm","-f","/sdcard/intel-xr-diagnostic.done"])
 _,launch=cmd([adb,"shell","monkey","-p","alvr.client.monado","-c","android.intent.category.LAUNCHER","1"])
 pid=""
 for _ in range(20):
