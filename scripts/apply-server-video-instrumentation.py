@@ -43,11 +43,9 @@ def patch_once(path: Path, old: str, new: str, marker: str) -> bool:
 
 root = project_root()
 alvr_render = root / "src" / "alvr_render" / "src" / "Encoder.cpp"
-connection = root / "src" / "alvr-monado" / "alvr" / "server_core" / "src" / "connection.rs"
 
-for path in (alvr_render, connection):
-    if not path.is_file():
-        raise SystemExit(f"ERROR: required source file missing: {path}")
+if not alvr_render.is_file():
+    raise SystemExit(f"ERROR: required source file missing: {alvr_render}")
 
 encoder_old = """    renderer.get().render(vkCtx, idx, timelineVal);
 
