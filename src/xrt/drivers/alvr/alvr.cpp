@@ -315,7 +315,7 @@ alvr_hmd_create(void)
 		if (!std::isfinite(q_norm_sq) || q_norm_sq < 1.0e-6f) {
 			static bool intel_xr_invalid_tracking_logged = false;
 			if (!intel_xr_invalid_tracking_logged) {
-				HMD_WARN(hmd,
+				HMD_ERROR(hmd,
 				         "[INTEL-XR-TRACKING] REJECT_INVALID_SAMPLE q=(%f,%f,%f,%f) norm2=%f",
 				         q.x,
 				         q.y,
