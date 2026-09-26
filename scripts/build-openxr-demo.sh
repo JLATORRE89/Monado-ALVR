@@ -9,12 +9,9 @@ rm -rf "$BUILD"
 [[ -f "$SDK/CMakeLists.txt" ]] || { echo "ERROR: OpenXR-SDK-Source missing at $SDK"; exit 1; }
 cmake -S "$SDK" -B "$BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-  -DBUILD_LOADER=ON -DBUILD_API_LAYERS=OFF -DBUILD_TESTS=OFF -DBUILD_CONFORMANCE_TESTS=OFF \
+  -DBUILD_LOADER=ON -DBUILD_API_LAYERS=OFF -DBUILD_TESTS=ON -DBUILD_CONFORMANCE_TESTS=OFF \
   -DBUILD_SDK_TESTS=ON
-if ! cmake --build "$BUILD" --target help | grep -qE "(^|[[:space:]])hello_xr([[:space:]]|$)"; then
-  echo "ERROR: hello_xr target was not generated. BUILD_TESTS must be ON with BUILD_SDK_TESTS=ON for this SDK revision."
-  exit 1
-fi
+# hello_xr is created by src/tests when both BUILD_TESTS and BUILD_SDK_TESTS are enabled.
 cmake --build "$BUILD" --target hello_xr --parallel "$(nproc)"
 HELLO="$(find "$BUILD" -type f -name hello_xr -perm -111 | head -1)"
 [[ -n "$HELLO" ]] || { echo "ERROR: hello_xr was not produced"; exit 1; }
