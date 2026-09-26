@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 StandardInput=null
 Environment=XRT_LOG=debug
+Environment=XRT_NO_STDIN=true
 ExecStart=/ai/intel-xr-prototype/build/monado-alvr/src/xrt/targets/service/monado-service
 Restart=on-failure
 RestartSec=5
