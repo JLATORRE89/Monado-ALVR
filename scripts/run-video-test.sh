@@ -24,8 +24,12 @@ fi
 SRC="$ROOT/src/Monado-ALVR/demo/checkerboard"
 BUILD="$ROOT/build/intel-xr-checkerboard"
 SDKBUILD="$ROOT/build/openxr-demo"
-# Reuse whichever OpenXR-SDK-Source checkout already exists in this project.
-SDK="$(find "$ROOT" -maxdepth 4 -type f -path "*/OpenXR-SDK-Source/include/openxr/openxr.h" -print -quit 2>/dev/null | sed "s#/include/openxr/openxr.h$##")"
+# Reuse headers from the already-built desktop OpenXR demo first.
+# Android loader headers are a fallback only.
+SDK=""
+for candidate in "$ROOT/build/openxr-demo" "$ROOT/build/openxr-loader-android"; do
+  if [[ -f "$candidate/include/openxr/openxr.h" ]]; then SDK="$candidate"; break; fi
+done
 if [[ -z "$SDK" ]]; then
   SDK="$(find "$ROOT" -maxdepth 5 -type f -path "*/include/openxr/openxr.h" -print -quit 2>/dev/null | sed "s#/include/openxr/openxr.h$##")"
 fi
