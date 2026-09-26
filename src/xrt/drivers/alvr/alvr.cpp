@@ -248,6 +248,15 @@ alvr_hmd_create(void)
 
 	hmd->base.name = XRT_DEVICE_GENERIC_HMD;
 	hmd->base.device_type = XRT_DEVICE_TYPE_HMD;
+
+	// View poses are returned directly by alvr_hmd_get_view_poses(). std::array
+	// value-initialization leaves both quaternions at (0,0,0,0), which OpenXR
+	// correctly rejects even when the head relation itself is valid. Seed both
+	// eyes with identity orientation until ALVR supplies real local view params.
+	for (auto &view_pose : hmd->viewPoses) {
+		view_pose = XRT_POSE_IDENTITY;
+	}
+	HMD_INFO(hmd, "[INTEL-XR-TRACKING] SEEDED_VALID_VIEW_POSES");
 	hmd->base.inputs[0].name = XRT_INPUT_GENERIC_HEAD_POSE;
 	hmd->base.orientation_tracking_supported = true;
 	hmd->base.position_tracking_supported = true;
