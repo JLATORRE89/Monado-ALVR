@@ -23,10 +23,15 @@ else
 fi
 SRC="$ROOT/src/Monado-ALVR/demo/checkerboard"
 BUILD="$ROOT/build/intel-xr-checkerboard"
-SDK="$ROOT/src/OpenXR-SDK-Source"
 SDKBUILD="$ROOT/build/openxr-demo"
+# Reuse whichever OpenXR-SDK-Source checkout already exists in this project.
+SDK="$(find "$ROOT" -maxdepth 4 -type f -path "*/OpenXR-SDK-Source/include/openxr/openxr.h" -print -quit 2>/dev/null | sed "s#/include/openxr/openxr.h$##")"
+if [[ -z "$SDK" ]]; then
+  SDK="$(find "$ROOT" -maxdepth 5 -type f -path "*/include/openxr/openxr.h" -print -quit 2>/dev/null | sed "s#/include/openxr/openxr.h$##")"
+fi
 RUNTIME="$ROOT/build/monado-alvr/openxr_monado-dev.json"
-[[ -f "$SDK/include/openxr/openxr.h" ]] || { echo "ERROR: missing $SDK/include/openxr/openxr.h"; exit 1; }
+[[ -n "$SDK" && -f "$SDK/include/openxr/openxr.h" ]] || { echo "ERROR: OpenXR SDK headers not found anywhere under $ROOT"; echo "Run: find \"$ROOT\" -type f -path \"*/include/openxr/openxr.h\" | head"; exit 1; }
+echo "OpenXR SDK: $SDK"
 LOADER="$(find "$SDKBUILD" -type f \( -name "libopenxr_loader.so" -o -name "libopenxr_loader.so.*" \) | head -1)"
 [[ -n "$LOADER" ]] || { echo "ERROR: OpenXR loader not found under $SDKBUILD; run scripts/build-openxr-demo.sh"; exit 1; }
 LOADER_DIR="$(dirname "$LOADER")"
