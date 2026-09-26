@@ -111,7 +111,7 @@ t_instance_create_system(struct xrt_instance *xinst,
 
 #ifdef XRT_MODULE_COMPOSITOR_MAIN
 	if (xret == XRT_SUCCESS && xsysc == NULL) {
-		struct comp_target_factory alvr_fac = alvr_create_target_factory();
+		static struct comp_target_factory alvr_fac;\n\t\talvr_fac = alvr_create_target_factory();
 		xret = comp_main_create_system_compositor(head, &alvr_fac, &xsysc);
 	}
 #else
