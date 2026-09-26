@@ -18,34 +18,11 @@ echo
 echo "[1/6] Runtime/artifacts"
 [[ -x "$SERVICE" ]] || { echo "ERROR: monado-service missing. Run build-intel-xr.sh."; exit 1; }
 
-if pgrep -f "$SERVICE" >/dev/null; then
-  MONADO_PID="$(pgrep -f "$SERVICE" | head -1)"
-  echo "Monado already running (PID $MONADO_PID)."
-else
-  echo "Starting Monado service."
-  nohup env XRT_LOG="${XRT_LOG:-debug}" "$SERVICE" >"$SERVICE_LOG" 2>&1 &
-  MONADO_PID=$!
-  echo "Monado PID: $MONADO_PID"
-  echo "Monado log: $SERVICE_LOG"
-fi
-
 echo
-echo "[2/6] Wait for ALVR API"
-API_READY=0
-for i in $(seq 1 20); do
-  if curl -fsS -H 'X-ALVR: 1' http://127.0.0.1:8082/api/ping >/dev/null 2>&1; then
-    API_READY=1; break
-  fi
-  if ! kill -0 "$MONADO_PID" 2>/dev/null; then
-    echo "ERROR: Monado exited while starting."
-    [[ -f "$SERVICE_LOG" ]] && tail -100 "$SERVICE_LOG"
-    exit 1
-  fi
-  sleep 1
-done
-[[ "$API_READY" -eq 1 ]] || { echo "ERROR: ALVR API did not become ready on :8082."; [[ -f "$SERVICE_LOG" ]] && tail -100 "$SERVICE_LOG"; exit 1; }
-echo "ALVR API ready."
-
+echo "[2/6] Monado user service/API"
+bash "$S/monado-service.sh" ensure
+MONADO_PID="$(systemctl --user show -p MainPID --value intel-xr-monado.service)"
+echo "Monado systemd PID: $MONADO_PID"
 echo
 echo "[3/6] Quest reachability"
 if ping -c 2 "$QUEST_IP"; then
