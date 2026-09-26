@@ -9,7 +9,8 @@
     "rust_target": "aarch64-linux-android",
     "platform_api": 32,
     "openxr_sdk_repo": "https://github.com/KhronosGroup/OpenXR-SDK-Source.git",
-    "openxr_sdk_ref": "release-1.1.53"
+    "openxr_sdk_ref": "release-1.1.53",
+    "usb_stay_awake": false
   },
   "alvr": {
     "legacy_protocol_test": true
