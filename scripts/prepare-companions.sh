@@ -111,9 +111,10 @@ new='''            if info.client_protocol_id != alvr_common::protocol_id_u64() 
                     .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                     .unwrap_or(false);
                 warn!(
-                    "Trusted client protocol mismatch! Expected protocol ID: {}, found: {}. Legacy test mode: {}",
+                    "Trusted client protocol mismatch! Expected protocol ID: {}, found: {}. Client platform: {}. Legacy test mode: {}",
                     alvr_common::protocol_id_u64(),
                     info.client_protocol_id,
+                    info.platform_string,
                     legacy_test,
                 );
                 if !legacy_test {
