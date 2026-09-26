@@ -42,8 +42,16 @@ if [[ "$TRANSPORT" == wifi ]]; then
   WIFI_DEV="$(ip route get "$QUEST_IP" 2>/dev/null | awk '{for(i=1;i<=NF;i++)if($i=="dev"){print $(i+1);exit}}')"
   command -v tcpdump >/dev/null 2>&1 || fail Discovery "tcpdump missing"
   sudo -n true 2>/dev/null || fail Discovery "run 'sudo true' once, then rerun"
-  PACKETS="$(timeout 6 sudo -n tcpdump -qn -c 1 -i "${WIFI_DEV:-any}" "host $QUEST_IP and (udp port 9943 or tcp port 9943)" 2>&1 || true)"
-  grep -q "$QUEST_IP" <<<"$PACKETS" || fail Discovery "no Quest ALVR traffic detected; keep ALVR foregrounded"
+  # Current ALVR discovers over mDNS/5353; legacy clients use UDP/TCP 9943.
+  # Do not require the destination/source host to be the Quest because mDNS is multicast.
+  PACKETS="$(timeout 6 sudo -n tcpdump -qn -c 1 -i "${WIFI_DEV:-any}" "(udp port 5353 or udp port 9943 or tcp port 9943)" 2>&1 || true)"
+  if grep -qE '5353|9943' <<<"$PACKETS"; then
+    :
+  elif [[ "$CLIENT_PACKAGE" == "alvr.client.monado" ]] && ss -unap 2>/dev/null | grep -q ':5353'; then
+    step Discovery "mDNS active"
+  else
+    fail Discovery "no ALVR mDNS/legacy discovery traffic detected; keep ALVR foregrounded"
+  fi
 fi
 step Discovery OK
 
