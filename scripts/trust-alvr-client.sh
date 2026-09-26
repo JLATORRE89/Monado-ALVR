@@ -17,7 +17,8 @@ j=json.load(sys.stdin); ip,pkg=sys.argv[1:3]; cs=j.get("clients",{})
 for h,c in cs.items():
     legacy=h.startswith("legacy-")
     if pkg=="alvr.client.monado" and legacy: continue
-    if c.get("current_ip")==ip or (not pkg and h=="legacy-"+ip) or ip in [str(x) for x in c.get("manual_ips",[])]: print(h); break
+    direct=(h=="direct-"+ip)
+    if c.get("current_ip")==ip or direct or (not pkg and h=="legacy-"+ip) or ip in [str(x) for x in c.get("manual_ips",[])]: print(h); break
 ' "$QUEST_IP" "$CLIENT_PACKAGE" <<<"$REG")"
 [[ -n "$HOST" ]] || { echo "ERROR: no registered ALVR candidate for Quest $QUEST_IP."; exit 1; }
 echo "Registered candidate: $HOST"
