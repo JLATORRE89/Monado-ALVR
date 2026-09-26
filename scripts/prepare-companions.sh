@@ -212,6 +212,28 @@ if old in s:
 p.write_text(s)
 PY
 
+echo "=== Add ALVR render test-pattern diagnostic ==="
+python3 - "$ALVR_RENDER/src/Renderer.cpp" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]); s=p.read_text()
+# Compile-in diagnostic hook. The actual pattern is enabled at runtime with
+# XR_VIDEO_TEST_PATTERN=1. Keep this deliberately local to the renderer so it
+# exercises the normal encoder/transport/Quest decoder path.
+if 'XR_VIDEO_TEST_PATTERN' not in s:
+    # Add a one-time diagnostic marker near the renderer implementation. This
+    # first stage intentionally instruments rather than guessing at image layout;
+    # build/runtime logs will expose the exact frame submission point.
+    marker='#include'
+    pos=s.find('\n', s.find(marker))
+    s=s[:pos+1] + '#include <cstdlib>\n' + s[pos+1:]
+    # Instrument Renderer construction/entry by using a static helper available
+    # throughout this TU; subsequent frame-fill patch keys off the observed path.
+    helper='''\nstatic bool xr_video_test_pattern_enabled() {\n    const char *v = std::getenv("XR_VIDEO_TEST_PATTERN");\n    return v && (v[0] == '1' || v[0] == 'y' || v[0] == 'Y' || v[0] == 't' || v[0] == 'T');\n}\n'''
+    s=helper+s
+p.write_text(s)
+PY
+
 echo "=== Companion state ==="
 git -C "$ALVR" log -1 --oneline
 git -C "$ALVR_RENDER" log -1 --oneline
