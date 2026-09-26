@@ -33,7 +33,19 @@ case "$ACTION" in
  ensure)
    install_unit
    systemctl --user is-active --quiet intel-xr-monado.service || systemctl --user start intel-xr-monado.service
-   if api_wait; then echo "PASS: Monado service active and ALVR API ready on 127.0.0.1:8082"; else
+   if api_wait; then
+     echo "ALVR API is ready; verifying 15-second startup stability..."
+     sleep 15
+     if systemctl --user is-active --quiet intel-xr-monado.service && \
+        curl -fsS -H 'X-ALVR: 1' http://127.0.0.1:8082/api/ping >/dev/null 2>&1; then
+       echo "PASS: Monado survived stabilization and ALVR API remains ready on 127.0.0.1:8082"
+     else
+       echo "ERROR: Monado/API failed during the 15-second stabilization window"
+       systemctl --user --no-pager --full status intel-xr-monado.service || true
+       journalctl --user -u intel-xr-monado.service -n 100 --no-pager || true
+       exit 1
+     fi
+   else
      echo "ERROR: service/API not ready"
      systemctl --user --no-pager --full status intel-xr-monado.service || true
      journalctl --user -u intel-xr-monado.service -n 100 --no-pager || true
