@@ -111,8 +111,8 @@ p=run([adb,"logcat","-d","-v","time",f"--pid={pid}"]); raw=p.stdout or ""
 markers=[x for x in raw.splitlines() if "[INTEL-XR-" in x]
 lines.append("=== INTEL XR MARKERS ===\n"+"\n".join(markers[-1000:]))
 syslog=run([adb,"logcat","-d","-v","time"]).stdout or ""
-doff_lines=[x for x in syslog.splitlines() if re.search(r"DOFF|TOP_SLEEPING|activity paused during WaitFrame|onActivityPaused|XR_SESSION_STATE_.*STOPPING",x,re.I)]
-lines.append("=== DOFF / FOCUS EVIDENCE ===\n"+"\n".join(doff_lines[-250:]))
+doff_lines=[x for x in raw.splitlines() if re.search(r"activity paused during WaitFrame|onActivityPaused|OPENXR_STATE .*STOPPING",x,re.I)]
+lines.append("=== CURRENT-PROCESS DOFF / FOCUS EVIDENCE ===\n"+"\n".join(doff_lines[-250:]))
 doff=bool(doff_lines)
 note(f"[Headset remained FOCUSED] {'YES' if initial_focus and final_focus and not doff else 'NO'}")
 note(f"[DOFF detected] {'YES' if doff else 'NO'}")
@@ -121,7 +121,12 @@ video=[x for x in markers if "[INTEL-XR-VIDEO]" in x]
 def has(*terms): return any(all(t.lower() in x.lower() for t in terms) for x in video)
 checks=[
  ("Streaming started",has("STREAMING_STARTED")),
- ("Codec config",has("DECODER_CONFIG")),
+ ("Stream socket connected",has("STREAM_SOCKET_CONNECTED")),
+ ("Connection state streaming",has("CONNECTION_STATE_STREAMING")),
+ ("Video packet received",has("VIDEO_PACKET_RECEIVED")),
+ ("IDR received",has("IDR_RECEIVED")),
+ ("Codec config",has("CONTROL_DECODER_CONFIG") or has("DECODER_CONFIG")),
+ ("Decoder callback present",has("DECODER_CALLBACK present=true")),
  ("Decoder create begun",has("DECODER_CREATE_BEGIN")),
  ("MediaCodec created",has("MEDIACODEC_CREATE")),
  ("MediaCodec configured",has("MEDIACODEC_CONFIGURED")),
@@ -129,7 +134,7 @@ checks=[
  ("Decoder input",has("MEDIACODEC_INPUT") or has("DECODER_INPUT")),
  ("Decoder output",has("MEDIACODEC_OUTPUT") or has("DECODER_OUTPUT")),
  ("ImageReader frame",has("IMAGE_READER_FRAME")),
- ("Stream rendered decoded frame",has("STREAM_RENDER decoded_frame")),
+ ("Stream rendered first decoded frame",has("STREAM_RENDER first_decoded_frame")),
 ]
 for name,val in checks: note(f"[{name}] {'YES' if val else 'NO'}")
 breakpoint=next((name for name,val in checks if not val),None)
