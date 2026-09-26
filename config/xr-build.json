@@ -25,5 +25,10 @@
   "video": {
     "test_pattern": false,
     "test_pattern_mode": "static-bars"
+  },
+  "demo": {
+    "openxr_sdk_source": "/ai/intel-xr-prototype/src/OpenXR-SDK-Source",
+    "graphics": "Vulkan",
+    "form_factor": "Hmd"
   }
 }
