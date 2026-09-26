@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -u
 ROOT="${INTEL_XR_ROOT:-/ai/intel-xr-prototype}"
+LOGDIR="$ROOT/logs"
+mkdir -p "$LOGDIR"
+LOG="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_status-intel-xr.log"
+exec > >(tee "$LOG") 2>&1
 echo "=== Intel XR status ==="
 echo "Root: $ROOT"
 echo
