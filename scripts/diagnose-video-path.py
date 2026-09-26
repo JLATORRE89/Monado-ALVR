@@ -164,4 +164,6 @@ else:
     verdict="NO PC→QUEST VIDEO TRAFFIC OBSERVED; inspect server encode/forward path or capture interface."
 note("[Verdict] "+verdict)
 out.write_text("\\n".join(lines)+"\\n",encoding="utf-8")
-note(f"[Log] {out}")\nif screenshot.exists(): note(f"[Screenshot] {screenshot}")
+note(f"[Log] {out}")
+if screenshot.exists():
+    note(f"[Screenshot] {screenshot}")
