@@ -5,8 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-StandardInput=tty
-TTYPath=/dev/tty
+StandardInput=null
 Environment=XRT_LOG=debug
 ExecStart=/ai/intel-xr-prototype/build/monado-alvr/src/xrt/targets/service/monado-service
 Restart=on-failure
