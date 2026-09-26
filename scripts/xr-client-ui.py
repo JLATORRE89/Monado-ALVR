@@ -69,7 +69,15 @@ class H(BaseHTTPRequestHandler):
             except Exception as e:return self.sendx(502,json.dumps({"error":str(e)}).encode())
         if self.path=="/api/clients":
             try:return self.sendx(200,req("/api/xr/clients"))
-            except Exception as e:return self.sendx(502,json.dumps({"error":str(e)}).encode())
+            except Exception as e:
+                # Keep the UI usable if the enhanced registry endpoint is absent
+                # or temporarily unavailable. Session clients are the fallback.
+                try:
+                    raw=req("/api/session")
+                    session=json.loads(raw)
+                    clients=session.get("client_connections",session.get("clients",{}))
+                    return self.sendx(200,json.dumps({"auto_accept":False,"clients":clients,"source":"session-fallback","registry_error":str(e)}).encode())
+                except Exception as e2:return self.sendx(502,json.dumps({"error":str(e),"fallback_error":str(e2)}).encode())
         self.sendx(404,b"{}")
     def do_POST(self):
         if self.path in ("/api/service/restart","/api/service/rebuild"):
