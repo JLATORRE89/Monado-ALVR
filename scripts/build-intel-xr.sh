@@ -10,7 +10,7 @@ PREFIX="$ROOT/local"
 LOGDIR="$ROOT/logs"
 
 mkdir -p "$LOGDIR"
-LOG="$LOGDIR/build-intel-xr.log"
+LOG="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_build-intel-xr.log"
 exec > >(tee "$LOG") 2>&1
 
 echo "=== Intel XR build ==="
