@@ -1,3 +1,9 @@
+> **Release v0.1.0-beta (2026-09-27):** Monado-ALVR `main` = merge c066ca309 of `xr-cleanup` (tree
+> identical to the verified branch); tags `v0.1.0-beta` on Monado-ALVR, loft (28d5d1a) and the ALVR
+> fork (830a55bb). The ALVR fork was NOT merged into its `master`: a trial merge (temporary worktree,
+> aborted) hit 33 conflicts with upstream master (connection, sockets, client, encoder, OpenVR
+> driver); that needs a planned integration and re-test.
+
 > **Loft committed (2026-09-27):** Claude verified Codex's handoff (source hashes, clean build,
 > CTest) and committed the art pass + Codex's seating/water/staff work unchanged as loft `main`
 > 28d5d1a (pushed). Headset acceptance of the staff, glasses and seating is still pending.
