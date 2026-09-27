@@ -55,6 +55,14 @@ struct xrt_device *
 alvr_hmd_create(void);
 
 /*!
+ * Create the left and right Touch controllers streamed by ALVR.
+ * Returns the number of devices created (2), or 0 when disabled
+ * (INTEL_XR_ALVR_CONTROLLERS=0) or on failure.
+ */
+int
+alvr_controllers_create(struct xrt_device **out_left, struct xrt_device **out_right);
+
+/*!
  * @dir drivers/alvr
  *
  * @brief @ref drv_alvr files.

@@ -788,11 +788,23 @@ renderer_present_swapchain_image(struct comp_renderer *r, uint64_t desired_prese
 {
 	COMP_TRACE_MARKER();
 
+	static bool intel_xr_present_entry_logged = false;
+	if (!intel_xr_present_entry_logged) {
+		U_LOG_I("[INTEL-XR-COMPOSITOR] PRESENT_ENTRY acquired_buffer=%d", r->acquired_buffer);
+		intel_xr_present_entry_logged = true;
+	}
+
 	VkResult ret;
 
 	assert(!comp_frame_is_invalid_locked(&r->c->frame.rendering));
 	uint64_t render_complete_signal_value = (uint64_t)r->c->frame.rendering.id;
 
+	static bool intel_xr_target_call_logged = false;
+	if (!intel_xr_target_call_logged) {
+		U_LOG_I("[INTEL-XR-COMPOSITOR] TARGET_PRESENT_CALL buffer=%d timeline=%llu",
+		        r->acquired_buffer, (unsigned long long)render_complete_signal_value);
+		intel_xr_target_call_logged = true;
+	}
 	ret = comp_target_present(        //
 	    r->c->target,                 //
 	    r->c->base.vk.queue,          //

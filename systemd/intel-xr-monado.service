@@ -14,8 +14,9 @@ Environment=XRT_NO_STDIN=true
 Environment=ALVR_LEGACY_PROTOCOL_TEST=1
 # Current-client discovery fallback while native mDNS resolution is unfinished.
 Environment=ALVR_DIRECT_CLIENT_IP=192.168.86.168
-# Diagnostic only: set to 1 to overwrite encoder input with bright magenta.
-Environment=XR_VIDEO_TEST_PATTERN=1
+# ALVR wired (USB) mode runs `adb`; without it on PATH ALVR downloads its own
+# platform-tools and a second ADB server would fight the SDK's server.
+Environment=PATH=/ai/android-sdk/platform-tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/ai/intel-xr-prototype/build/monado-alvr/src/xrt/targets/service/monado-service
 Restart=on-failure
 RestartSec=5

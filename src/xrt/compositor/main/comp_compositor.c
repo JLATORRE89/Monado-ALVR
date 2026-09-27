@@ -291,6 +291,12 @@ compositor_layer_commit(struct xrt_compositor *xc, xrt_graphics_sync_handle_t sy
 
 	COMP_SPEW(c, "LAYER_COMMIT at %8.3fms", ts_ms());
 
+	static bool intel_xr_layer_commit_logged = false;
+	if (!intel_xr_layer_commit_logged) {
+		U_LOG_I("[INTEL-XR-COMPOSITOR] LAYER_COMMIT layers=%u", c->base.layer_accum.layer_count);
+		intel_xr_layer_commit_logged = true;
+	}
+
 	/*
 	 * We have a fast path for single projection layer that goes directly
 	 * to the distortion shader, so no need to use the layer renderer.
@@ -306,9 +312,20 @@ compositor_layer_commit(struct xrt_compositor *xc, xrt_graphics_sync_handle_t sy
 	u_graphics_sync_unref(&sync_handle);
 
 	// Do the drawing
+	static bool intel_xr_draw_begin_logged = false;
+	if (!intel_xr_draw_begin_logged) {
+		U_LOG_I("[INTEL-XR-COMPOSITOR] DRAW_BEGIN fast_path=%s", fast_path ? "true" : "false");
+		intel_xr_draw_begin_logged = true;
+	}
 	xrt_result_t xret = comp_renderer_draw(c->r);
 	if (xret != XRT_SUCCESS) {
+		U_LOG_E("[INTEL-XR-COMPOSITOR] DRAW_FAILED result=%d", xret);
 		return xret;
+	}
+	static bool intel_xr_draw_ok_logged = false;
+	if (!intel_xr_draw_ok_logged) {
+		U_LOG_I("[INTEL-XR-COMPOSITOR] DRAW_OK");
+		intel_xr_draw_ok_logged = true;
 	}
 
 	u_frame_times_widget_push_sample(&c->compositor_frame_times, os_monotonic_get_ns());

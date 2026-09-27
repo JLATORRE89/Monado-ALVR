@@ -1,4 +1,5 @@
 #include <thread>
+#include <cstdio>
 #include <iostream>
 
 extern "C" {
@@ -101,11 +102,10 @@ alvr_target_create_images(comp_target *ct, const comp_target_create_images_info 
 {
 	auto &acomp = get_acomp(ct);
 
-	ImageRequirements imgReqs = {
-	    .image_usage = create_info->image_usage,
-	    .format_count = create_info->format_count,
-	    .extent = create_info->extent,
-	};
+	ImageRequirements imgReqs{};
+	imgReqs.image_usage = create_info->image_usage;
+	imgReqs.format_count = create_info->format_count;
+	imgReqs.extent = create_info->extent;
 	for (uint32_t i = 0; i < create_info->format_count; ++i) {
 		imgReqs.formats[i] = create_info->formats[i];
 	}
@@ -217,7 +217,28 @@ alvr_target_present(comp_target *ct,
 	};
 
 
-	printf("present\n");
+	static bool intel_xr_frame_received_logged = false;
+	if (!intel_xr_frame_received_logged) {
+		std::fprintf(stderr,
+		             "[INTEL-XR-SERVER] FRAME_RECEIVED_FROM_MONADO image=%u timeline=%llu\n",
+		             img_idx,
+		             static_cast<unsigned long long>(timeline_semaphore_value));
+		intel_xr_frame_received_logged = true;
+	}
+
+	static uint64_t intel_xr_views_frames = 0;
+	if (intel_xr_views_frames++ % 3600 == 0) {
+		for (int e = 0; e < 2; e++) {
+			const xrt_pose &xp = frameParms.poses[e];
+			const xrt_fov &xf = frameParms.fovs[e];
+			std::fprintf(stderr,
+			             "[INTEL-XR-VIEWS] FRAME_VIEW eye=%d pos=(%.4f,%.4f,%.4f) rot=(%.4f,%.4f,%.4f,%.4f) "
+			             "fov(l,r,u,d)=(%.4f,%.4f,%.4f,%.4f)\n",
+			             e, xp.position.x, xp.position.y, xp.position.z, xp.orientation.x, xp.orientation.y,
+			             xp.orientation.z, xp.orientation.w, xf.angle_left, xf.angle_right, xf.angle_up,
+			             xf.angle_down);
+		}
+	}
 
 	base.enc.get().present(img_idx, timeline_semaphore_value, viewInfo);
 
@@ -256,11 +277,11 @@ alvr_target_calc_frame_pacing(comp_target *ct,
 	// NOTE: That's the next vsync that will be performed, we want to aim for the one after it
 	alvr_duration_until_next_vsync(&nextVsync);
 
-	std::cout << "duration until next vsync: " << nextVsync << "\n";
+	// Intel XR: suppress per-frame pacing spam during video-path diagnostics.
 
 	nextVsync += os_monotonic_get_ns();
 
-	std::cout << "next vsync time: " << nextVsync << "\n";
+	
 
 	// timed for 120 fps
 	*out_wake_up = nextVsync;
@@ -269,7 +290,7 @@ alvr_target_calc_frame_pacing(comp_target *ct,
 	*out_present_slop = 8;
 	*out_predicted_display = nextVsync + 16;
 
-	std::cout << "calculated wake up time: " << *out_wake_up << "\n";
+	
 }
 
 void
@@ -287,23 +308,22 @@ alvr_target_info_gpu(comp_target *ct, int64_t frame_id, int64_t gpu_start_ns, in
 bool
 create_target_alvr(const comp_target_factory *factory, struct comp_compositor *compositor, comp_target **target)
 {
-	auto t = new comp_target_alvr{.base = {
-	                                  .c = compositor,
-	                                  .name = "Alvr",
-	                                  .init_pre_vulkan = alvr_target_init_pre_vulkan,
-	                                  .init_post_vulkan = alvr_target_init_post_vulkan,
-	                                  .check_ready = alvr_target_check_ready,
-	                                  .create_images = alvr_target_create_images,
-	                                  .has_images = alvr_target_has_images,
-	                                  .acquire = alvr_target_acquire,
-	                                  .present = alvr_target_present,
-	                                  .flush = alvr_target_flush_wsi,
-	                                  .calc_frame_pacing = alvr_target_calc_frame_pacing,
-	                                  .mark_timing_point = alvr_target_mark_timing_point,
-	                                  .update_timings = alvr_target_update_timings,
-	                                  .info_gpu = alvr_target_info_gpu,
-	                                  .set_title = alvr_target_set_title,
-	                              }};
+	auto t = new comp_target_alvr{};
+	t->base.c = compositor;
+	t->base.name = "Alvr";
+	t->base.init_pre_vulkan = alvr_target_init_pre_vulkan;
+	t->base.init_post_vulkan = alvr_target_init_post_vulkan;
+	t->base.check_ready = alvr_target_check_ready;
+	t->base.create_images = alvr_target_create_images;
+	t->base.has_images = alvr_target_has_images;
+	t->base.acquire = alvr_target_acquire;
+	t->base.present = alvr_target_present;
+	t->base.flush = alvr_target_flush_wsi;
+	t->base.calc_frame_pacing = alvr_target_calc_frame_pacing;
+	t->base.mark_timing_point = alvr_target_mark_timing_point;
+	t->base.update_timings = alvr_target_update_timings;
+	t->base.info_gpu = alvr_target_info_gpu;
+	t->base.set_title = alvr_target_set_title;
 
 
 	*target = &t->base;
@@ -340,16 +360,14 @@ alvr_create_target_factory()
 
 	};
 
-	return comp_target_factory{
-	    .name = "ALVR",
-	    .identifier = "alvr",
-	    .requires_vulkan_for_create = false,
-	    .is_deferred = false,
-
-	    .required_instance_version = VK_MAKE_VERSION(1, 3, 0),
-	    .optional_device_extensions = device_extensions.data(),
-	    .optional_device_extension_count = device_extensions.size(),
-
-	    .create_target = create_target_alvr,
-	};
+	comp_target_factory factory{};
+	factory.name = "ALVR";
+	factory.identifier = "alvr";
+	factory.requires_vulkan_for_create = false;
+	factory.is_deferred = false;
+	factory.required_instance_version = VK_MAKE_VERSION(1, 3, 0);
+	factory.optional_device_extensions = device_extensions.data();
+	factory.optional_device_extension_count = device_extensions.size();
+	factory.create_target = create_target_alvr;
+	return factory;
 }
