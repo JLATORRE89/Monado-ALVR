@@ -236,6 +236,25 @@ patch_once(
     "#include <cmath>",
 )
 
+# Diagnostic switch: INTEL_XR_NO_REOPEN=1 disables runtime re-opens (for bisecting).
+patch_once(
+    vaapi_cpp,
+    """  if (!has_pending_params) {
+    return;
+  }
+  auto const &params = pending_params;""",
+    """  if (!has_pending_params) {
+    return;
+  }
+  static bool const reopen_disabled = getenv("INTEL_XR_NO_REOPEN") != nullptr;
+  if (reopen_disabled) {
+    has_pending_params = false;
+    return;
+  }
+  auto const &params = pending_params;""",
+    "INTEL_XR_NO_REOPEN",
+)
+
 print()
 print("alvr_render dynamic encoder params are applied.")
 print("Expected markers: ENCODER_DYNAMIC_PARAMS bps=... fps=...; ENCODER_REOPEN bps=... took_ms=...")
