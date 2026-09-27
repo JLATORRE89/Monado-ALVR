@@ -183,7 +183,15 @@ async function loadCaptures() {
       return el("figure", { class: "media" }, media,
         el("figcaption", { class: "meta" },
           el("span", {}, el("strong", {}, knownHeadsets.get(c.headset) || c.headset), el("br"), when),
-          el("a", { href: url, download: c.file }, "Download")));
+          el("span", { class: "actions" },
+            el("a", { href: url, download: c.file }, "Download"),
+            el("button", { class: "btn danger small", "data-confirm": `Delete ${c.file}?`,
+              onclick: e => run(e.currentTarget, async () => {
+                const res = await api("/api/captures/delete", { method: "POST",
+                  json: { headset: c.headset, file: c.file, on_headset: $("#deleteOnHeadset").checked } });
+                loadCaptures();
+                return res;
+              }) }, "Delete"))));
     });
     $("#captures").replaceChildren(...(items.length ? items : [el("div", { class: "card empty" }, "No captures yet.")]));
   } catch (e) {

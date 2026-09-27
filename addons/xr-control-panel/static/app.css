@@ -119,6 +119,9 @@ input[type=text], input[type=number], select { width: 100%; min-height: 52px; pa
 .media img, .media video { display: block; width: 100%; aspect-ratio: 16/10; object-fit: contain; background: #000; }
 .media .meta { padding: 10px 12px; display: flex; justify-content: space-between; gap: 8px; align-items: center; font-size: .85rem; }
 .media .meta a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.media .meta .actions { display: flex; gap: 10px; align-items: center; }
+.btn.small { padding: 4px 10px; font-size: .8rem; min-height: 0; }
+.check { display: inline-flex; gap: 6px; align-items: center; font-size: .85rem; cursor: pointer; }
 
 /* Toasts */
 .toasts { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%);

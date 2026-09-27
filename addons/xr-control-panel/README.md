@@ -8,7 +8,8 @@ headsets, or remove it — the runtime does not depend on it.
   battery, awake/asleep, Wi‑Fi IP, ALVR client state and matching ALVR connection.
   Per headset: Screenshot, Start/Stop recording (video with audio), Launch/Close client, Wake.
 - **Captures** — screenshots and recordings stored per headset on this PC
-  (`~/.local/share/xr-control-panel/captures/<serial>/`), with viewer and download.
+  (`~/.local/share/xr-control-panel/captures/<serial>/`), with viewer, download and delete
+  (asks first; "Also delete from headset" removes the Quest's copy too when it is connected).
 - **Streaming** *(runtime)* — start/exit the test app, stop the runtime, ALVR connections
   (approve, forget, clear).
 - **Settings** *(runtime)* — edit `config/xr-build.json`, restart, rebuild (incremental,

@@ -57,8 +57,8 @@ QUEST_SHOTS = "/sdcard/Oculus/Screenshots"
 QUEST_VIDEOS = "/sdcard/Oculus/VideoShots"
 CAPTURE_SERVICE = "com.oculus.metacam/.capture.CaptureService"
 SERIAL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
-FILE_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}\.(jpg|png|mp4)$")
-DIR_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+FILE_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}\.(jpg|png|mp4)$")
+DIR_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$")  # no leading dot: rejects "." and ".."
 
 # Editable keys of the runtime's config/xr-build.json.
 EDITABLE = {
@@ -286,6 +286,26 @@ def list_captures(headset: str | None) -> list[dict]:
     return sorted(items, key=lambda x: x["mtime"], reverse=True)[:200]
 
 
+def delete_capture(headset: str, file: str, on_headset: bool) -> dict:
+    """Delete a capture from this PC and, optionally, the same file on the headset."""
+    if not DIR_RE.match(headset) or not FILE_RE.match(file):
+        raise ValueError("invalid capture name")
+    f = CAPTURE_DIR / headset / file
+    if not f.is_file():
+        raise ValueError("capture not found")
+    f.unlink()
+    message = f"Deleted {file}"
+    if on_headset:
+        folder = QUEST_VIDEOS if file.endswith(".mp4") else QUEST_SHOTS
+        try:
+            require_headset(headset)
+            res = adb("-s", headset, "shell", "rm", "-f", f"{folder}/{file}")
+            message += " (also on the headset)" if res.returncode == 0 else " (headset copy not removed)"
+        except RuntimeError as e:
+            message += f" (headset copy kept: {e})"
+    return {"message": message}
+
+
 # ---------------------------------------------------------------- runtime features
 def status() -> dict:
     root = runtime_root()
@@ -463,6 +483,10 @@ class Handler(BaseHTTPRequestHandler):
             m = re.match(r"^/api/loft/([a-z]+)$", path)
             if m:
                 return self.json(loft_command(m.group(1)))
+            if path == "/api/captures/delete":
+                req = json.loads(self.body())
+                return self.json(delete_capture(str(req.get("headset", "")), str(req.get("file", "")),
+                                                bool(req.get("on_headset", False))))
             if path == "/api/service/restart":
                 run_runtime("monado-service.sh", "restart", background=True)
                 return self.json({"message": "Runtime restart requested"}, 202)

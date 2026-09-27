@@ -38,7 +38,10 @@
   <section id="tab-captures" class="tab" role="tabpanel" hidden>
     <div class="section-head row">
       <div><h1>Captures</h1><p class="muted">Screenshots and recordings, stored per headset on this PC.</p></div>
-      <label class="field compact"><span>Headset</span><select id="captureFilter"><option value="">All headsets</option></select></label>
+      <div class="row">
+        <label class="field compact"><span>Headset</span><select id="captureFilter"><option value="">All headsets</option></select></label>
+        <label class="check"><input type="checkbox" id="deleteOnHeadset"> Also delete from headset</label>
+      </div>
     </div>
     <div id="captures" class="gallery"></div>
   </section>
