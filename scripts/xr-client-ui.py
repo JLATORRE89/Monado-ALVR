@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json, os, urllib.request, subprocess, tempfile
+import json, os, re, time, urllib.request, subprocess, tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 API=os.environ.get("ALVR_API","http://127.0.0.1:8082")
 PORT=int(os.environ.get("XR_CLIENT_UI_PORT","8083"))
@@ -13,6 +13,41 @@ EDITABLE={
  "network.legacy_udp":bool,"network.usb":bool,
  "video.test_pattern":bool,"video.test_pattern_mode":str,
 }
+SHOTS_DIR="/ai/intel-xr-prototype/logs/headset-screenshots"
+QUEST_SHOTS="/sdcard/Oculus/Screenshots"
+SHOT_NAME=re.compile(r"^[A-Za-z0-9._-]+\.(jpg|png)$")
+ADB=__import__("shutil").which("adb") or "/ai/android-sdk/platform-tools/adb"
+def adb(*args,timeout=20):
+    return subprocess.run([ADB,*args],capture_output=True,text=True,timeout=timeout)
+def quest_serial():
+    # First attached device that has the Quest system capture service (skips phones).
+    for line in adb("devices").stdout.splitlines()[1:]:
+        bits=line.split()
+        if len(bits)>=2 and bits[1]=="device":
+            if "package:" in adb("-s",bits[0],"shell","pm","path","com.oculus.metacam").stdout:
+                return bits[0]
+    raise RuntimeError("No Quest connected over ADB (USB or ADB over Wi-Fi)")
+def quest_shots(serial):
+    out=adb("-s",serial,"shell","ls","-t",QUEST_SHOTS).stdout.split()
+    return [x for x in out if SHOT_NAME.match(x)]
+def take_headset_screenshot():
+    serial=quest_serial()
+    before=set(quest_shots(serial))
+    adb("-s",serial,"shell","am","startservice","-n","com.oculus.metacam/.capture.CaptureService","-a","TAKE_SCREENSHOT")
+    for _ in range(40):
+        time.sleep(0.25)
+        new=[x for x in quest_shots(serial) if x not in before]
+        if new:
+            time.sleep(0.5)  # let the capture finish writing
+            os.makedirs(SHOTS_DIR,exist_ok=True)
+            res=adb("-s",serial,"pull",QUEST_SHOTS+"/"+new[0],os.path.join(SHOTS_DIR,new[0]),timeout=60)
+            if res.returncode!=0: raise RuntimeError(res.stderr.strip() or "adb pull failed")
+            return new[0]
+    raise RuntimeError("Headset did not produce a screenshot (is it awake?)")
+def list_shots():
+    if not os.path.isdir(SHOTS_DIR): return []
+    names=[x for x in os.listdir(SHOTS_DIR) if SHOT_NAME.match(x)]
+    return sorted(names,key=lambda x: os.path.getmtime(os.path.join(SHOTS_DIR,x)),reverse=True)[:24]
 def config_load(): return json.load(open(CONFIG))
 def config_save(data):
     tmp=CONFIG+".tmp"
@@ -45,11 +80,14 @@ pre{background:var(--bg);padding:12px;border-radius:8px;overflow-x:auto;font-siz
 @media (min-width:720px){body{max-width:960px;margin:0 auto}button{width:auto;min-width:200px;margin:6px 8px 6px 0}input,select{width:auto;min-width:320px}}
 </style>
 <h1>Intel XR Clients</h1><div id=stack>Checking stack...</div>
+<section><h2>Headset screenshot</h2><p>Captures what the headset wearer sees (any app). Needs ADB (USB or ADB over Wi-Fi). Saved to <code>logs/headset-screenshots/</code>.</p><button onclick="shot()">Take headset screenshot</button><span id=shotmsg></span><div id=shots></div></section>
 <section><h2>Test app</h2><button onclick="app('start')">Start test app</button><button onclick="app('stop')">Exit test app</button><button class=danger onclick="app('stop-all')">Exit app + stop runtime</button><span id=appmsg></span></section><p>Default policy: <b>auto-accept protocol-valid ALVR clients</b>.</p>
 <h2>Settings</h2><p>Edit any item in <code>config/xr-build.json</code>.</p><select id=settingSelect onchange="showSetting()"><option value="">Select a setting...</option></select><span id=settingEditor></span><button onclick="saveSelectedSetting()">Update setting</button><button onclick="service('restart')">Restart services</button><button class=danger onclick="if(confirm('Rebuild runs build-intel-xr.sh, which resets alvr_render (reset --hard) and checks ALVR out at a pinned old revision, discarding the companion fixes. Continue?'))service('rebuild')">Rebuild runtime (destructive)</button><span id=setmsg></span><h2>Approved MAC devices</h2><input id=file type=file accept=".json,.xlsx"><button onclick="upload()">Import JSON/XLSX</button><pre id=approved></pre>
 <h2>ALVR clients</h2><button onclick="clearClients()">Clear client cache</button><span id=msg></span><div id=x>Loading...</div>
 <script>
 async function stackStatus(){try{let r=await fetch('/api/status');let j=await r.json();stack.innerHTML='<b>Runtime:</b> '+j.runtime+' &nbsp; <b>API:</b> '+j.api+' &nbsp; <b>Test app:</b> '+j.app+' &nbsp; <b>UI:</b> READY'}catch(e){stack.textContent='Stack status unavailable: '+e}}
+async function shot(){shotmsg.textContent=' Capturing...';try{let r=await fetch('/api/headset/screenshot',{method:'POST'});let j=await r.json();shotmsg.textContent=' '+(r.ok?'Saved '+j.file:'Failed: '+(j.error||r.status));loadShots()}catch(e){shotmsg.textContent=' Failed: '+e}}
+async function loadShots(){try{let r=await fetch('/api/headset/screenshots');let j=await r.json();shots.innerHTML=(j.files||[]).map(f=>'<a href="/shots/'+f+'" target=_blank><img src="/shots/'+f+'" alt="'+f+'" loading=lazy style="width:100%;max-width:420px;border-radius:8px;margin:6px 0"></a><div style="font-size:.8rem">'+f+'</div>').join('')}catch(e){}}
 async function app(a){appmsg.textContent=' '+a+'...';try{let r=await fetch('/api/app/'+a,{method:'POST'});let j=await r.json();appmsg.textContent=' '+(r.ok?j.message:'Failed: '+(j.error||r.status))}catch(e){appmsg.textContent=' Failed: '+e}stackStatus()}
 async function service(a){setmsg.textContent=' '+a+'...';let r=await fetch('/api/service/'+a,{method:'POST'});let j=await r.json();setmsg.textContent=r.ok?' '+j.message:' Failed: '+(j.error||r.status);stackStatus();load()}
 let configValues={};
@@ -60,7 +98,7 @@ async function load(){try{let r=await fetch('/api/clients');let j=await r.json()
 async function act(n,a){await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify([n,a])});load()}
 async function clearClients(){if(!confirm('Clear cached ALVR client entries? Approved MAC devices are preserved.'))return;msg.textContent=' Clearing...';try{let r=await fetch('/api/clients/clear',{method:'POST'});let t=await r.text();if(!r.ok)throw Error(t||r.status);msg.textContent=' Client cache cleared.';await load()}catch(e){msg.textContent=' Clear failed: '+e}}
 async function upload(){let f=file.files[0];if(!f)return;let r=await fetch('/api/approved/import',{method:'POST',headers:{'X-Filename':f.name},body:await f.arrayBuffer()});if(!r.ok)alert(await r.text());load()}
-stackStatus();loadSettings();load();setInterval(()=>{stackStatus();load()},3000)
+stackStatus();loadSettings();load();loadShots();setInterval(()=>{stackStatus();load()},3000)
 </script>"""
 class H(BaseHTTPRequestHandler):
     def log_message(self,*a):pass
@@ -68,6 +106,14 @@ class H(BaseHTTPRequestHandler):
         self.send_response(code);self.send_header("Content-Type",typ);self.end_headers();self.wfile.write(body)
     def do_GET(self):
         if self.path=="/":return self.sendx(200,PAGE.encode(),"text/html; charset=utf-8")
+        if self.path=="/api/headset/screenshots":
+            return self.sendx(200,json.dumps({"files":list_shots()}).encode())
+        if self.path.startswith("/shots/"):
+            name=self.path[len("/shots/"):]
+            path=os.path.join(SHOTS_DIR,name)
+            if not SHOT_NAME.match(name) or not os.path.isfile(path): return self.sendx(404,b"{}")
+            with open(path,"rb") as f: data=f.read()
+            return self.sendx(200,data,"image/png" if name.endswith(".png") else "image/jpeg")
         if self.path=="/api/status":
             runtime=subprocess.run(["systemctl","--user","is-active","intel-xr-monado.service"],capture_output=True,text=True).stdout.strip()
             try:req("/api/ping"); api="READY"
@@ -101,6 +147,9 @@ class H(BaseHTTPRequestHandler):
                 except Exception as e2:return self.sendx(502,json.dumps({"error":str(e),"fallback_error":str(e2)}).encode())
         self.sendx(404,b"{}")
     def do_POST(self):
+        if self.path=="/api/headset/screenshot":
+            try:return self.sendx(200,json.dumps({"file":take_headset_screenshot()}).encode())
+            except Exception as e:return self.sendx(500,json.dumps({"error":str(e)}).encode())
         if self.path in ("/api/app/start","/api/app/stop","/api/app/stop-all"):
             action=self.path.rsplit("/",1)[1]
             try:
