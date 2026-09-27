@@ -42,5 +42,23 @@
 - A fresh-IDR request after install is now emitted successfully; consumption of `ServerCoreEvent::RequestIDR` is the current boundary.
 - Connection shutdown probes identify client streaming vs lifecycle causes if teardown recurs.
 
+## Lessons 2026-09-26 (overnight)
+- One-shot probes hide repetition: "no fresh IDR" was false; per-frame probes showed IDRs every frame.
+- Server `info!` markers go to `~/alvr_session.log`; raw `eprintln!`/stderr goes to the journal.
+- UDP `send()` success only means "queued in the PC kernel". Check `ss -uanpm | grep -A1 :9944`
+  (Send-Q / `t…`) on the PC and `/proc/net/udp` port `:26D8` on the Quest before blaming code.
+- The PC reaches the Quest LAN only via USB Wi-Fi (rt2800usb, 2.4 GHz, ~32 Mbit/s); `eno1` is a
+  different LAN. Keep the video bitrate well below that or change the network.
+- alvr_render opens VAAPI rate control once (unpatched system FFmpeg); runtime bitrate changes
+  need a service restart. Intel CBR pads every frame to bitrate/framerate.
+- Do not run `build-intel-xr.sh`/`prepare-companions.sh` for incremental work (they
+  `reset --hard` alvr_render). Use `cmake --build build/monado-alvr` + `scripts/apply-*.py`.
+- `alvr_binding.h` is a symlink to the xtask-generated header; never write into it.
+- `pkill -f run-video-test` from a shell whose command line contains that text kills the
+  shell; use `pkill -f '[r]un-video-test'`.
+- The Quest carries the debug-signed client; install `target/debug/apk/alvr_client_openxr.apk`
+  (`cargo xtask build-client`). The release build fails with a signature mismatch.
+- Always use `adb -s 1WMHHA42R81461` (a Pixel 5 is also attached).
+
 ## Diagnostic hygiene
 Rate-limit noisy probes. Once a boundary is proven, reduce/remove its temporary logging. Record evidence in `TASKS.md`.

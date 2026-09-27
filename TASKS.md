@@ -1,25 +1,51 @@
 # Intel XR Prototype — Task Progress
 
-## OVERNIGHT RESULT (2026-09-26, in progress — updated during the session)
+## OVERNIGHT RESULT (2026-09-26)
 
-**Status:** RequestIDR is consumed and forces a fresh IDR (proven PC-side and with a live
-Quest). Server video enqueue/dequeue/send is proven with 0 send errors. The Quest
-received and reassembled the first IDR packet, then received no further video packets.
-**Current boundary: Quest stream-socket receive after the first video packet.**
+**Status:** First decoded video frame reached the Quest renderer
+(`STREAM_RENDER first_decoded_frame`, Quest 20:57:20.925 = PC 21:57:20). Whether the
+checkerboard is visible has not been confirmed by a person.
+
+**Root cause of "only the first packet arrives":** PC egress bandwidth, not code. The PC
+reaches the Quest LAN (192.168.86.0/24) only through USB Wi-Fi `wlx9cefd5fa3634`
+(rt2800usb, 2.4 GHz ch 11, 130 Mbit/s PHY; `eno1` is on a different LAN, 192.168.1.0/24).
+The adapter saturates at ~32 Mbit/s TX, and at a 30 Mbit/s video target the stream socket held
+~4 MB in the driver (`ss -uanpm`: `t4142592`). `send()` returns OK, so the server logs
+`errors=0`, while the Quest socket shows rx_queue=0/drops=0. At 10 Mbit/s: Send-Q 131 KB,
+Quest `STREAM_RECV_STATS shards` rising with `try_again=0`, `DECODER_SUBMIT accepted=true`,
+`MEDIACODEC_OUTPUT`, first decoded frame. Delivery is still lossy (`loss=true`, ~20 s gaps).
+
+**Exact remaining blocker:** lossy/insufficient PC->Quest network path (2.4 GHz USB Wi-Fi).
+**Needs a human decision (host networking, not changed tonight):** put the PC on the Quest's
+LAN via Ethernet or a 5 GHz adapter/AP, or accept a lower bitrate.
+
+**Session config currently changed:** ALVR `video.bitrate.mode.ConstantMbps` 30 -> 10
+(backup: `/ai/intel-xr-prototype/backups/alvr-session-2026-09-26-pre-bitrate-test.json`).
+Restore: `bash scripts/monado-service.sh stop && cp <backup> ~/.config/alvr/session.json &&
+bash scripts/monado-service.sh start`.
+
+**Next command for the operator (headset worn):**
+```
+pkill -f '[i]ntel_xr_checkerboard'; bash scripts/monado-service.sh restart && bash scripts/monado-service.sh ensure
+bash scripts/run-video-test.sh   # then put on the headset / open the ALVR client
+```
+Expected markers: Quest `VIDEO_PACKET_RECEIVED`, `DECODER_SUBMIT accepted=true`,
+`MEDIACODEC_OUTPUT`, `STREAM_RENDER first_decoded_frame`, `STREAM_RECV_STATS`; PC
+`ss -uanpm | grep -A1 :9944` Send-Q should stay near 0. Look for the red (left) / blue
+(right) solid colours from `demo/checkerboard`.
 
 Commits:
-- Monado-ALVR `xr-cleanup`: `603c25467` route RequestIDR into alvr_render IDRScheduler
-  (companion patch helper `scripts/apply-alvr-render-request-idr.py`).
-- Monado-ALVR `xr-cleanup`: `ac98803f1` seed alvr_render VAAPI rate control from the ALVR
-  session (`scripts/apply-alvr-render-encoder-bitrate.py`).
-- ALVR `intel-xr-client-diag`: `5401e13c` count video shard send results (VIDEO_SEND_STATS).
+- Monado-ALVR `xr-cleanup`: `603c25467` route RequestIDR into alvr_render IDRScheduler;
+  `ac98803f1` seed VAAPI rate control from the ALVR session; `2d63b7349` rate-limit proven
+  NAL probes and stop writing into the generated binding header; `25316f274` + this file (docs).
+- ALVR `intel-xr-client-diag`: `5401e13c` server VIDEO_SEND_STATS; `b40375a1` client
+  STREAM_RECV_STATS heartbeat.
 
-## Active blocker
-The Quest client logs exactly one `VIDEO_PACKET_RECEIVED` (the first IDR, no loss) per
-stream, then none, while the server logs `VIDEO_SEND_STATS sent=1000 errors=0`. The
-decoder is created after the first packet (`MEDIACODEC_STARTED software=false`) but never
-gets input. Determine whether datagrams stop arriving at the Quest socket or the client's
-stream receive loop stops consuming them.
+Tests passed: Monado builds rc=0 / 0 warnings; `cargo build -p alvr_server_core` rc=0
+(1 pre-existing upstream warning); target/deployed server-core sha256 match (`4581c6d5…`);
+client debug APK 0 warnings, installed sha256 `2904634a…` matches build; service `ensure`
+PASS after every restart; `/api/insert-idr` -> `REQUEST_IDR_CONSUMED` -> `ENCODED_IDR
+requested=true` (3/3 plus live-client requests).
 
 ## Proven
 - [x] Quest client builds/installs and reaches OpenXR FOCUSED.
@@ -64,8 +90,10 @@ stream receive loop stops consuming them.
 - [x] Verify `VIDEO_CHANNEL_LOCK_OK present=true` / ENQUEUE (VIDEO_CHANNEL_READY + ENQUEUE logged).
 - [x] Verify `VIDEO_CHANNEL_DEQUEUE` and `VIDEO_PACKET_SENT`.
 - [x] Quest packet receive (first packet only) and decoder config.
-- [ ] Explain why only the first video packet reaches `VIDEO_PACKET_RECEIVED`.
-- [ ] Decoder input/output and displayed checkerboard.
+- [x] Explain why only the first video packet reaches `VIDEO_PACKET_RECEIVED` (PC USB Wi-Fi egress saturation).
+- [x] Decoder input/output: `DECODER_SUBMIT accepted=true`, `MEDIACODEC_OUTPUT`, `STREAM_RENDER first_decoded_frame` (at 10 Mbit/s).
+- [ ] Reliable PC->Quest network path (Ethernet/5 GHz) — human decision.
+- [ ] Displayed checkerboard confirmed by a person in the headset.
 - [ ] If teardown occurs, capture `SHUTDOWN_TRIGGER client_streaming=... lifecycle=...`.
       Observed twice: `client_streaming=false lifecycle=Resumed` exactly when the Quest's
       OpenXR session went VISIBLE -> STOPPING -> IDLE (activity paused / headset removed).
@@ -146,3 +174,13 @@ stream receive loop stops consuming them.
   `cmake --build build/monado-alvr` and re-apply `scripts/apply-*.py`.
 - `scripts/quest-usb-awake.sh` uses `adb` without `-s`; it fails when the Pixel 5 is also
   attached. Quest serial: `1WMHHA42R81461`.
+
+### 5. PC egress saturation (decisive, 21:52-21:58)
+- Passive watcher (`logs/2026-09-26_21-48-20_quest-udp9944-watch.txt`): Quest UDP 9944
+  rx_queue=0 drops=0 while PC socket Send-Q 2.7-4.2 MB. PC `wlx9cefd5fa3634` TX ~32 Mbit/s
+  (rt2800usb, 2.4 GHz ch 11, 130 Mbit/s PHY).
+- Release APK install refused (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`, signature): the Quest
+  has the debug-signed build. Installed debug build instead (`cargo xtask build-client`,
+  `target/debug/apk/alvr_client_openxr.apk`); no uninstall, app data kept.
+- 10 Mbit/s test (session backed up first): Send-Q 131 KB; client `STREAM_RECV_STATS
+  shards=4484..6433 try_again=0`; first decoded frame rendered; frequent `loss=true`.

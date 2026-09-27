@@ -18,13 +18,19 @@ Artifacts:
 - Logs: `logs/`
 
 ## Immediate objective
-Trace and implement consumption of `ServerCoreEvent::RequestIDR` so that the existing request emitted after `VIDEO_CHANNEL_INSTALL` forces a fresh encoder IDR.
-
-Target chain:
-`VIDEO_CHANNEL_INSTALL -> REQUEST_IDR_AFTER_VIDEO_READY -> fresh IDR -> VIDEO_CHANNEL_LOCK_OK present=true -> VIDEO_CHANNEL_TRY_SEND_RESULT ok=true -> VIDEO_CHANNEL_DEQUEUE -> VIDEO_PACKET_SENT -> Quest receive/decode/display`.
+Get reliable PC->Quest video delivery. Code path is proven through Quest decoder output and
+`STREAM_RENDER first_decoded_frame` (2026-09-26, at 10 Mbit/s). Remaining blocker is the
+network: the PC's only path to the Quest LAN is a 2.4 GHz USB Wi-Fi adapter saturating at
+~32 Mbit/s. See the OVERNIGHT RESULT in `TASKS.md`.
 
 ## Proven state
-Tracking works; valid initial head/eye identity poses fixed `xrLocateViews`. Real Quest tracking is accepted. Checkerboard reaches `SHOULD_RENDER=1`, projection submission, compositor present, encoder input, and H.264 Annex-B IDR output (~95 KB, `00 00 00 01`). NAL parsing reaches Rust C ABI and `ServerCoreContext::send_video_nal`. The initial IDR occurs before `video_channel_sender` exists and is dropped. The connection later reaches StreamReady, socket connect, `VIDEO_CHANNEL_INSTALL`, and Streaming. Commit `70b0097d` requests `ServerCoreEvent::RequestIDR` after channel installation; runtime proves `REQUEST_IDR_AFTER_VIDEO_READY ok=true`, but no subsequent encoded frame has yet been observed.
+Tracking, render, compositor, encoder and NAL -> server-core paths are proven.
+`ServerCoreEvent::RequestIDR` is consumed by alvr_render `handleEvents()` and drives the existing
+`IDRScheduler` (`scripts/apply-alvr-render-request-idr.py`). VAAPI rate control is seeded from the
+ALVR session (`scripts/apply-alvr-render-encoder-bitrate.py`). Server enqueue/dequeue/send is
+proven with 0 send errors. At 10 Mbit/s the Quest receives packets, decodes them
+(`MEDIACODEC_OUTPUT`) and renders the first decoded frame. alvr_render changes live as idempotent
+`scripts/apply-*.py` helpers because alvr_render is a pinned detached checkout.
 
 ## Procedure
 Read `RULES.md` and `TASKS.md` first. Inspect existing code before patching. Prefer existing ALVR/Monado mechanisms. Make one narrow change per hypothesis. Compile the directly changed component first, verify the actual artifact, then rebuild/restart dependencies. Run one controlled test, record evidence in `TASKS.md`, and commit meaningful changes.
