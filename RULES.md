@@ -60,5 +60,9 @@
   (`cargo xtask build-client`). The release build fails with a signature mismatch.
 - Always use `adb -s 1WMHHA42R81461` (a Pixel 5 is also attached).
 
+- Wired mode: ALVR forwards 9943/9944 over ADB itself; the service unit must have the SDK
+  `adb` on PATH. `adb forward --list` is global; entries carry the device serial.
+- ALVR session edits: stop the service first (it rewrites session.json), back up, then start.
+
 ## Diagnostic hygiene
 Rate-limit noisy probes. Once a boundary is proven, reduce/remove its temporary logging. Record evidence in `TASKS.md`.

@@ -215,5 +215,49 @@ requested=true` (3/3 plus live-client requests).
 - Build rc=0, 0 warnings. Runtime: `VAAPI_INPUT mode=map_renderer_output intel=1`; service stable.
 - Dump decoded on PC: frame 0 grey (Monado idle), frames 5..149 left RGB (254,0,0), right
   (0,0,254) — the checkerboard demo's red/blue.
-- Operator confirmed red/blue in the headset. Next: USB (ADB-forwarded) streaming; then
+- Operator confirmed red/blue in the headset. USB prepared (section 8, awaiting headset); then
   separate production fixes from diagnostics for main.
+
+### 8. USB (wired) streaming — prepared, awaiting headset (22:10-22:15)
+- Mechanism (existing ALVR): session entry `client.wired` -> server handshake loop uses
+  `alvr_adb::WiredConnection` to `adb forward tcp:9943/9944` to the headset, autolaunches the
+  client, waits until its activity is resumed, connects via 127.0.0.1; both ends switch the
+  stream to TCP from the negotiated `wired` flag (no client change needed).
+- Fix ALVR `2f53241c`: wired setup picked the first ADB device (the Pixel 5 is listed before the
+  Quest); now picks the device that has a matching ALVR client installed.
+  cargo build rc=0 (1 pre-existing warning); deployed; sha256 `a44b7849…` target == deployed.
+- Fix Monado-ALVR `22c489f41`: unit PATH includes `/ai/android-sdk/platform-tools` so ALVR
+  uses the SDK adb (otherwise it downloads platform-tools and runs a second ADB server).
+- Session (backup `/ai/intel-xr-prototype/backups/alvr-session-2026-09-26-pre-wired.json`):
+  `wired_client_type = Custom("alvr.client.monado")`, added `client.wired` (trusted).
+- Verified headset-free: service PATH correct, forwards `1WMHHA42R81461 tcp:9943/9944`
+  created by the server, no download, client running; handshake waits (headset asleep).
+- Wireless entries (`5747.client.local.`, `direct-192.168.86.168`) were left in place; the
+  handshake loop tries wired first. If Wi-Fi wins the race, remove them temporarily.
+
+**Operator test for USB (headset on, USB cable connected):**
+```
+cd /ai/intel-xr-prototype/src/Monado-ALVR
+pkill -f '[i]ntel_xr_checkerboard'; bash scripts/monado-service.sh restart && bash scripts/monado-service.sh ensure
+bash scripts/run-video-test.sh &      # one checkerboard
+# put on headset; ALVR client is autolaunched/resumed
+ss -tnp | grep -E ':994[34]'           # expect ESTAB 127.0.0.1 -> 127.0.0.1:9943/9944 (TCP)
+grep -E "VIDEO_SEND_STATS|DECODER_CONFIG_SENT" ~/alvr_session.log | tail
+```
+Expected: TCP 127.0.0.1 connections, `VIDEO_SEND_STATS ... errors=0`, red/blue in headset,
+no `loss=true` on the Quest. Then try raising `video.bitrate.mode.ConstantMbps` back to 30
+(stop service, edit session, start — the encoder reads bitrate only at init).
+
+## Follow-up: Wi-Fi anti-stutter (operator request)
+Evidence so far: PC egress is a 2.4 GHz USB Wi-Fi adapter (~32 Mbit/s); loss appears as
+`loss=true` / incomplete packets. Options, most effective first:
+1. Network path: PC on the Quest's LAN via Ethernet or a 5 GHz adapter (removes the
+   bottleneck; host change — operator decision).
+2. Adaptive bitrate: ALVR's `BitrateMode::Adaptive` already measures throughput, but
+   alvr_render applies rate control only at `avcodec_open2()` (unpatched FFmpeg). Needs either
+   ALVR's FFmpeg dynamic-bitrate patch (`alvr/xtask/patches/0001-vaapi_encode-Allow-to-
+   dynamically-change-bitrate-and.patch`) or re-opening the encoder on bitrate change.
+3. Faster recovery: keep `avoid_video_glitching=true`; tune `IDRScheduler` min interval
+   (`aggressive_keyframe_resend`); consider intra-refresh instead of full IDRs to avoid
+   ~13-shard keyframe bursts.
+4. Client buffering: `video.max_buffering_frames` to absorb jitter at a latency cost.
