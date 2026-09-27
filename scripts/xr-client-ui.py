@@ -28,10 +28,25 @@ def req(path, method="GET", data=None):
     r=urllib.request.Request(API+path,data=body,method=method,headers={"X-ALVR":"1","Content-Type":"application/json"})
     with urllib.request.urlopen(r,timeout=3) as x:return x.read()
 PAGE="""<!doctype html><meta charset=utf-8><title>Intel XR Clients</title>
-<style>body{font:16px system-ui;max-width:900px;margin:32px auto;padding:0 20px}button,input,select{margin:4px;padding:8px}pre{background:#eee;padding:12px}.card{border:1px solid #bbb;padding:12px;margin:12px 0}</style>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<style>
+:root{color-scheme:light dark;--bg:#f6f7f9;--fg:#15171a;--card:#fff;--line:#c9ced6;--accent:#2457d6;--danger:#b3261e}
+@media (prefers-color-scheme:dark){:root{--bg:#121417;--fg:#e8eaed;--card:#1d2025;--line:#3a3f47;--accent:#7aa2ff;--danger:#ff8a80}}
+*{box-sizing:border-box}
+body{font:18px/1.45 system-ui,sans-serif;margin:0;padding:12px 16px 48px;background:var(--bg);color:var(--fg)}
+h1{font-size:1.5rem;margin:8px 0 12px}h2{font-size:1.2rem;margin:24px 0 8px}
+#stack,.card,section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0}
+button,input,select{font:inherit;width:100%;min-height:56px;margin:6px 0;padding:12px 16px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+button{background:var(--accent);color:#fff;border:0;font-weight:600;cursor:pointer}
+button:active{transform:scale(.98)}
+button.danger{background:var(--danger)}
+pre{background:var(--bg);padding:12px;border-radius:8px;overflow-x:auto;font-size:.85rem}
+#appmsg,#setmsg,#msg{display:block;min-height:1.4em;font-size:.95rem}
+@media (min-width:720px){body{max-width:960px;margin:0 auto}button{width:auto;min-width:200px;margin:6px 8px 6px 0}input,select{width:auto;min-width:320px}}
+</style>
 <h1>Intel XR Clients</h1><div id=stack>Checking stack...</div>
-<h2>Test app</h2><button onclick="app('start')">Start test app</button><button onclick="app('stop')">Exit test app</button><button onclick="app('stop-all')">Exit app + stop runtime</button><span id=appmsg></span><p>Default policy: <b>auto-accept protocol-valid ALVR clients</b>.</p>
-<h2>Settings</h2><p>Edit any item in <code>config/xr-build.json</code>.</p><select id=settingSelect onchange="showSetting()"><option value="">Select a setting...</option></select><span id=settingEditor></span><button onclick="saveSelectedSetting()">Update setting</button><button onclick="service('restart')">Restart services</button><button onclick="service('rebuild')">Rebuild runtime</button><span id=setmsg></span><h2>Approved MAC devices</h2><input id=file type=file accept=".json,.xlsx"><button onclick="upload()">Import JSON/XLSX</button><pre id=approved></pre>
+<section><h2>Test app</h2><button onclick="app('start')">Start test app</button><button onclick="app('stop')">Exit test app</button><button class=danger onclick="app('stop-all')">Exit app + stop runtime</button><span id=appmsg></span></section><p>Default policy: <b>auto-accept protocol-valid ALVR clients</b>.</p>
+<h2>Settings</h2><p>Edit any item in <code>config/xr-build.json</code>.</p><select id=settingSelect onchange="showSetting()"><option value="">Select a setting...</option></select><span id=settingEditor></span><button onclick="saveSelectedSetting()">Update setting</button><button onclick="service('restart')">Restart services</button><button class=danger onclick="if(confirm('Rebuild runs build-intel-xr.sh, which resets alvr_render (reset --hard) and checks ALVR out at a pinned old revision, discarding the companion fixes. Continue?'))service('rebuild')">Rebuild runtime (destructive)</button><span id=setmsg></span><h2>Approved MAC devices</h2><input id=file type=file accept=".json,.xlsx"><button onclick="upload()">Import JSON/XLSX</button><pre id=approved></pre>
 <h2>ALVR clients</h2><button onclick="clearClients()">Clear client cache</button><span id=msg></span><div id=x>Loading...</div>
 <script>
 async function stackStatus(){try{let r=await fetch('/api/status');let j=await r.json();stack.innerHTML='<b>Runtime:</b> '+j.runtime+' &nbsp; <b>API:</b> '+j.api+' &nbsp; <b>Test app:</b> '+j.app+' &nbsp; <b>UI:</b> READY'}catch(e){stack.textContent='Stack status unavailable: '+e}}
