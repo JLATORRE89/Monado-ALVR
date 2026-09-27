@@ -1,3 +1,16 @@
+> **Loft committed (2026-09-27):** Claude verified Codex's handoff (source hashes, clean build,
+> CTest) and committed the art pass + Codex's seating/water/staff work unchanged as loft `main`
+> 28d5d1a (pushed). Headset acceptance of the staff, glasses and seating is still pending.
+
+> **Codex follow-up complete (2026-09-27 19:00 EDT):** Seating alignment fixes, interactive water,
+> male human bartender and walking female human server are built/running. Read the current
+> `/ai/intel-xr-prototype/LOFT-CODEX-HANDOFF.md` before editing; preserve these changes.
+
+> **Claude resume notice (2026-09-27 18:30 EDT):** Jason asked Codex to brighten the
+> rear Loft and add seating. Read `/ai/intel-xr-prototype/LOFT-CODEX-HANDOFF.md`
+> and current `src/loft` files before editing. Preserve this and the earlier uncommitted
+> art pass; do not overwrite from stale session context. OS ports remain plan-only.
+
 # Intel XR Prototype — Task Progress
 
 ## CONSOLIDATION RESULT (2026-09-27 ~16:10)
