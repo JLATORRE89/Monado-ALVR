@@ -26,7 +26,10 @@ else
 fi
 step Transport OK
 
-if bash "$S/xr-client-ui.sh" ensure >/dev/null 2>&1; then step "Client UI" "OK :8083"; else step "Client UI" WARN; fi
+# The control panel is an optional add-on (addons/xr-control-panel); report it if installed.
+if systemctl --user cat xr-control-panel.service >/dev/null 2>&1; then
+  if systemctl --user is-active --quiet xr-control-panel.service; then step "Control panel" OK; else step "Control panel" WARN; fi
+fi
 adb start-server >/dev/null 2>&1 || true
 if [[ -z "$CLIENT_PACKAGE" ]]; then
   if adb shell pm path alvr.client.monado >/dev/null 2>&1; then CLIENT_PACKAGE=alvr.client.monado

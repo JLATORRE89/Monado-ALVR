@@ -24,8 +24,8 @@ api_wait() {
 }
 case "$ACTION" in
  install) install_unit ;;
- start) install_unit; systemctl --user start intel-xr-monado.service; bash "$ROOT/src/Monado-ALVR/scripts/xr-client-ui.sh" ensure >/dev/null 2>&1 || true ;;
- restart) install_unit; systemctl --user restart intel-xr-monado.service; bash "$ROOT/src/Monado-ALVR/scripts/xr-client-ui.sh" ensure >/dev/null 2>&1 || true ;;
+ start) install_unit; systemctl --user start intel-xr-monado.service ;;
+ restart) install_unit; systemctl --user restart intel-xr-monado.service ;;
  stop) systemctl --user stop intel-xr-monado.service ;;
  enable) install_unit ;;
  disable) systemctl --user disable --now intel-xr-monado.service ;;
@@ -34,7 +34,10 @@ case "$ACTION" in
    echo
    echo "=== Intel XR endpoints ==="
    if curl -fsS -H 'X-ALVR: 1' http://127.0.0.1:8082/api/ping >/dev/null 2>&1; then echo "ALVR API:   READY  http://127.0.0.1:8082"; else echo "ALVR API:   DOWN   http://127.0.0.1:8082"; fi
-   if systemctl --user is-active --quiet intel-xr-client-ui.service && curl -fsS http://127.0.0.1:8083/ >/dev/null 2>&1; then echo "Client UI:  READY  http://127.0.0.1:8083"; else echo "Client UI:  DOWN   http://127.0.0.1:8083"; fi
+   # Optional add-on (addons/xr-control-panel); the runtime does not depend on it.
+   if systemctl --user cat xr-control-panel.service >/dev/null 2>&1; then
+     if systemctl --user is-active --quiet xr-control-panel.service; then echo "Panel:      READY  (xr-control-panel add-on)"; else echo "Panel:      DOWN   (xr-control-panel add-on)"; fi
+   fi
    ;;
  ensure)
    install_unit

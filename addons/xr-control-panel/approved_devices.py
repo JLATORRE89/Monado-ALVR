@@ -26,8 +26,19 @@ def rows_json(path):
     if not isinstance(obj,list): raise ValueError("JSON must be an array or contain devices/approved_devices array")
     return obj
 
+ALIASES={"mac":"mac_address","mac address":"mac_address","address":"mac_address","device":"name","device_name":"name"}
+
+def rows_csv(path):
+    import csv
+    with open(path,newline="",encoding="utf-8-sig") as f:
+        rows=list(csv.DictReader(f))
+    return [{ALIASES.get(k.strip().lower(),k.strip().lower()):v for k,v in r.items() if k} for r in rows]
+
 def rows_xlsx(path):
-    from openpyxl import load_workbook
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        raise SystemExit("XLSX import needs openpyxl (sudo apt install python3-openpyxl); or save the sheet as CSV")
     ws=load_workbook(path,read_only=True,data_only=True).active
     it=ws.iter_rows(values_only=True); headers=[str(x or "").strip().lower() for x in next(it)]
     aliases={"mac":"mac_address","mac address":"mac_address","address":"mac_address","device":"name","device_name":"name"}
@@ -47,7 +58,8 @@ def main():
     elif a.action=="add":
         incoming=[{"mac_address":a.value,"name":a.name,"enabled":True}]
     else:
-        src=Path(a.value); incoming=rows_xlsx(src) if src.suffix.lower()==".xlsx" else rows_json(src)
+        src=Path(a.value); ext=src.suffix.lower()
+        incoming=rows_xlsx(src) if ext==".xlsx" else rows_csv(src) if ext==".csv" else rows_json(src)
     if a.action in ("add","import"):
         by={d["mac_address"]:d for d in reg["devices"]}
         for row in incoming:
