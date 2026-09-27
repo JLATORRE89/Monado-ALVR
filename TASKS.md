@@ -425,3 +425,7 @@ Goal (operator): streaming must work on 2.4 GHz networks.
   Works for any foreground Quest app while ADB is connected. For Wi-Fi-only use, ADB over Wi-Fi
   must be enabled once over USB (`adb tcpip 5555`) — not done (operator decision).
 - Still pending live test: W11 pacing / bitrate-sized send buffer on 2.4 GHz.
+- Headset video recording from the web UI (with audio): metacam
+  `START_/STOP_INTERNAL_CAPTURE_TO_DISK` -> MP4 1920x1080 H.264 + AAC pulled to
+  `logs/headset-screenshots/`. (`START_CAPTURE`/`STOP_CAPTURE` log "Invalid action" on this OS.)
+  SideQuest uses the same ADB mechanisms, so the web UI does not need SideQuest.
