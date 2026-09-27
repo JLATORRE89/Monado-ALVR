@@ -69,3 +69,24 @@ headset until it reboots — only do this on a trusted network.
 - Captures use the Quest system capture service (`com.oculus.metacam`); on current Horizon
   OS the recording actions are `START_/STOP_INTERNAL_CAPTURE_TO_DISK`.
 - ALVR streams to one headset at a time; the panel manages many.
+
+## GPU Worker add-on (optional)
+
+The **GPU Worker** tab sends captures to a Local AI Stack shared GPU on another system
+(`gpu_video_api_package`, `/api/v1/gpu-api`) and saves the results to
+`captures/gpu-worker/`, so they show up in Captures and in the Loft's Pictures app. It is for
+offline work (upscaling, generating images or panoramas); live VR frames always render and encode
+on this PC's GPU.
+
+- **Connection:** the remote system's IP address or host name (optional `:port`), HTTPS only.
+  When you use an IP address, enter the **certificate host name** the server's certificate was
+  issued for; the certificate is still fully verified. A custom CA file is optional.
+- **Connection key:** create one in the Local AI Stack account settings with the `render` and
+  `storage` scopes. It is stored only in `~/.config/xr-control-panel/gpu-worker.json` (mode
+  0600) and never sent to the browser. **Remove key** deletes it.
+- **Jobs:** pick a workflow offered by the remote (discovered from the API, never typed in),
+  an optional source capture and a prompt. One-reference workflows receive the capture as the
+  API's `0.png` ZIP bundle. The request ID is saved before submitting; **Check status** polls and
+  downloads outputs once, **Retry submission** resends with the same request ID after a lost
+  response. Outputs are downloaded only through the API's asset path and never overwrite files.
+- Job history: `~/.local/share/xr-control-panel/gpu-worker/jobs.json` (0600).

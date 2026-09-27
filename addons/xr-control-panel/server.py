@@ -25,6 +25,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gpu_worker  # noqa: E402  optional add-on: remote shared GPU (Local AI Stack)
+
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
 CONFIG_PATH = Path(os.environ.get("XR_PANEL_CONFIG", Path.home() / ".config/xr-control-panel/config.json"))
@@ -456,12 +459,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json({"values": config_values(), "types": {k: t.__name__ for k, t in EDITABLE.items()}})
             if path == "/api/clients":
                 return self.json(alvr_clients())
+            if path == "/api/gpu/status":
+                return self.json(gpu_worker.status())
+            if path == "/api/gpu/workflows":
+                return self.json({"workflows": gpu_worker.workflows()})
+            if path == "/api/gpu/jobs":
+                return self.json({"jobs": gpu_worker.list_jobs()})
             if path == "/api/approved":
                 res = approved_tool("list")
                 if res.returncode != 0:
                     raise RuntimeError(res.stderr.strip())
                 return self.send(200, res.stdout.encode())
             return self.json({"error": "not found"}, 404)
+        except gpu_worker.GpuWorkerError as e:
+            return self.error_json(e, e.status)
         except Exception as e:
             return self.error_json(e)
 
@@ -487,6 +498,29 @@ class Handler(BaseHTTPRequestHandler):
                 req = json.loads(self.body())
                 return self.json(delete_capture(str(req.get("headset", "")), str(req.get("file", "")),
                                                 bool(req.get("on_headset", False))))
+            if path == "/api/gpu/config":
+                req = json.loads(self.body())
+                return self.json({"message": "GPU worker settings saved", **gpu_worker.save_conf(
+                    str(req.get("address", "")), str(req.get("server_name", "")), str(req.get("ca_file", "")),
+                    req.get("key") or None, bool(req.get("clear_key", False)))})
+            if path == "/api/gpu/test":
+                acct = gpu_worker.account()
+                return self.json({"message": "Connected to the GPU worker", "account": acct})
+            if path == "/api/gpu/jobs":
+                req = json.loads(self.body())
+                source, label = None, ""
+                if req.get("headset") or req.get("file"):
+                    h, f = str(req.get("headset", "")), str(req.get("file", ""))
+                    if not DIR_RE.match(h) or not FILE_RE.match(f) or not (CAPTURE_DIR / h / f).is_file():
+                        raise ValueError("capture not found")
+                    source, label = CAPTURE_DIR / h / f, f"{h}/{f}"
+                rec = gpu_worker.submit(str(req.get("workflow", "")), str(req.get("prompt", ""))[:2000], source, label)
+                return self.json({"message": "Job submitted to the shared GPU", "job": rec}, 202)
+            m = re.match(r"^/api/gpu/jobs/([0-9a-f-]{36})/refresh$", path)
+            if m:
+                rec = gpu_worker.refresh(m.group(1), CAPTURE_DIR)
+                note = f"; saved {len(rec['outputs'])} output(s) to Captures" if rec.get("outputs") else ""
+                return self.json({"message": f"Job {rec['status']}{note}", "job": rec})
             if path == "/api/service/restart":
                 run_runtime("monado-service.sh", "restart", background=True)
                 return self.json({"message": "Runtime restart requested"}, 202)
@@ -527,6 +561,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise RuntimeError((res.stderr or res.stdout).strip())
                 return self.json({"message": res.stdout.strip()})
             return self.json({"error": "not found"}, 404)
+        except gpu_worker.GpuWorkerError as e:
+            return self.error_json(e, e.status)
         except (ValueError, KeyError) as e:
             return self.error_json(e, 400)
         except Exception as e:

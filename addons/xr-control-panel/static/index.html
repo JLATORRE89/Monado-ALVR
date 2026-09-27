@@ -24,6 +24,7 @@
   <button role="tab" data-tab="streaming">Streaming</button>
   <button role="tab" data-tab="settings">Settings</button>
   <button role="tab" data-tab="devices">Approved devices</button>
+  <button role="tab" data-tab="gpu">GPU Worker</button>
 </nav>
 
 <main>
@@ -89,6 +90,37 @@
         <button class="btn" id="restartRuntime" data-confirm="Restart the runtime? A connected headset will reconnect.">Restart runtime</button>
         <button class="btn" id="rebuildRuntime" data-confirm="Rebuild the runtime (re-apply companion patches and build incrementally)? Takes a few minutes; restart the runtime afterwards.">Rebuild runtime</button>
       </div>
+    </div>
+  </section>
+
+  <section id="tab-gpu" class="tab" role="tabpanel" hidden>
+    <div class="section-head"><h1>GPU Worker</h1><p class="muted">Run renders on a Local AI Stack shared GPU on another system. Results are saved to Captures (and the Loft's Pictures). Live VR frames stay on this PC's GPU.</p></div>
+    <div class="card">
+      <h2>Connection</h2>
+      <label class="field"><span>Remote address (IP or host, optional :port)</span><input type="text" id="gpuAddress" placeholder="192.168.1.80" autocomplete="off"></label>
+      <label class="field"><span>Certificate host name (needed when you use an IP address)</span><input type="text" id="gpuServerName" placeholder="ai.example.lan" autocomplete="off"></label>
+      <label class="field"><span>Custom CA file on this PC (optional)</span><input type="text" id="gpuCaFile" placeholder="/path/to/ca.pem" autocomplete="off"></label>
+      <label class="field"><span>Connection key (render + storage scopes; stays on this PC)</span><input type="password" id="gpuKey" autocomplete="new-password" placeholder="Leave empty to keep the saved key"></label>
+      <p class="muted" id="gpuState">Not set up yet.</p>
+      <div class="actions">
+        <button class="btn primary" id="gpuSave">Save</button>
+        <button class="btn" id="gpuTest">Test connection</button>
+        <button class="btn danger" id="gpuForget" data-confirm="Remove the saved connection key from this PC?">Remove key</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>New job</h2>
+      <label class="field"><span>Workflow</span><select id="gpuWorkflow"><option value="">Load workflows…</option></select></label>
+      <label class="field"><span>Source capture (optional for text-only workflows)</span><select id="gpuSource"><option value="">None</option></select></label>
+      <label class="field"><span>Prompt</span><textarea id="gpuPrompt" rows="3" maxlength="2000" placeholder="Describe the result you want"></textarea></label>
+      <div class="actions">
+        <button class="btn" id="gpuLoadWorkflows">Refresh workflows</button>
+        <button class="btn primary" id="gpuSubmit">Submit to shared GPU</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Jobs</h2>
+      <div id="gpuJobs"></div>
     </div>
   </section>
 

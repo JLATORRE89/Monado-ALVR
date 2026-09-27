@@ -35,7 +35,7 @@ command -v adb >/dev/null || echo "NOTE: adb not on PATH; set \"adb\" in $CONFIG
 
 echo "Installing XR Control Panel to $PREFIX"
 mkdir -p "$PREFIX/static" "$CONFIG_DIR" "$UNIT_DIR"
-install -m 0755 "$SRC/server.py" "$SRC/approved_devices.py" "$PREFIX/"
+install -m 0755 "$SRC/server.py" "$SRC/approved_devices.py" "$SRC/gpu_worker.py" "$PREFIX/"
 install -m 0644 "$SRC/static/index.html" "$SRC/static/app.css" "$SRC/static/app.js" "$PREFIX/static/"
 install -m 0644 "$SRC/README.md" "$PREFIX/"
 

@@ -60,6 +60,7 @@ function showTab(name) {
   if (name === "streaming") loadClients();
   if (name === "settings") loadSettings();
   if (name === "devices") loadApproved();
+  if (name === "gpu") loadGpu();
 }
 for (const b of $$(".tabs button")) b.addEventListener("click", () => showTab(b.dataset.tab));
 
@@ -326,3 +327,74 @@ window.addEventListener("resize", sizeTopbar);
   setInterval(loadStatus, 5000);
   setInterval(() => { if (!$("#tab-headsets").hidden) loadHeadsets(); }, 5000);
 })();
+
+// ---------------------------------------------------------------- GPU worker (optional add-on)
+async function loadGpu() {
+  try {
+    const s = await api("/api/gpu/status");
+    $("#gpuAddress").value = s.address;
+    $("#gpuServerName").value = s.server_name;
+    $("#gpuCaFile").value = s.ca_file;
+    $("#gpuState").textContent = s.configured ? `Set up for ${s.address}; connection key saved.`
+      : s.address ? "Add a connection key to finish setting up." : "Not set up yet.";
+    const caps = (await api("/api/captures")).captures;
+    $("#gpuSource").replaceChildren(el("option", { value: "" }, "None"),
+      ...caps.filter(c => c.type === "image" || c.type === "video").map(c =>
+        el("option", { value: `${c.headset}/${c.file}` }, `${c.file} (${knownHeadsets.get(c.headset) || c.headset})`)));
+    renderGpuJobs((await api("/api/gpu/jobs")).jobs);
+    if (s.configured && $("#gpuWorkflow").options.length <= 1) loadGpuWorkflows(null);
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+async function loadGpuWorkflows(button) {
+  return run(button, async () => {
+    const wf = (await api("/api/gpu/workflows")).workflows;
+    const ids = Object.keys(wf).sort();
+    $("#gpuWorkflow").replaceChildren(...(ids.length ? ids.map(id => {
+      const refs = wf[id] && wf[id].reference_count;
+      return el("option", { value: id }, refs ? `${id} (needs ${refs} image${refs > 1 ? "s" : ""})` : id);
+    }) : [el("option", { value: "" }, "No workflows offered")]));
+    return { message: `${ids.length} workflow${ids.length === 1 ? "" : "s"} available` };
+  });
+}
+function renderGpuJobs(jobs) {
+  const rows = jobs.map(j => el("div", { class: "job" },
+    el("div", {}, el("strong", {}, j.workflow), " · ", el("span", { class: "muted" }, new Date(j.created * 1000).toLocaleString())),
+    el("div", { class: "muted" }, j.source ? `Source: ${j.source}` : "No source", j.prompt ? ` · “${j.prompt}”` : ""),
+    el("div", {}, "Status: ", el("strong", {}, j.status), j.error ? el("span", { class: "danger-text" }, ` — ${j.error}`) : null),
+    j.outputs && j.outputs.length ? el("div", {}, "Saved to Captures: ",
+      ...j.outputs.map(f => el("a", { href: `/captures/gpu-worker/${encodeURIComponent(f)}`, target: "_blank", rel: "noopener" }, f, " "))) : null,
+    ["complete", "failed", "cancelled"].includes(j.status) && (j.outputs || []).length ? null :
+      el("button", { class: "btn small", onclick: e => run(e.currentTarget, async () => {
+        const res = await api(`/api/gpu/jobs/${j.request_id}/refresh`, { method: "POST" });
+        renderGpuJobs((await api("/api/gpu/jobs")).jobs);
+        return res;
+      }) }, j.job_id ? "Check status" : "Retry submission")));
+  $("#gpuJobs").replaceChildren(...(rows.length ? rows : [el("p", { class: "muted" }, "No jobs yet.")]));
+}
+$("#gpuSave").addEventListener("click", e => run(e.currentTarget, async () => {
+  const res = await api("/api/gpu/config", { method: "POST", json: {
+    address: $("#gpuAddress").value, server_name: $("#gpuServerName").value,
+    ca_file: $("#gpuCaFile").value, key: $("#gpuKey").value } });
+  $("#gpuKey").value = "";
+  loadGpu();
+  return res;
+}));
+$("#gpuForget").addEventListener("click", e => run(e.currentTarget, async () => {
+  const res = await api("/api/gpu/config", { method: "POST", json: {
+    address: $("#gpuAddress").value, server_name: $("#gpuServerName").value,
+    ca_file: $("#gpuCaFile").value, clear_key: true } });
+  loadGpu();
+  return { message: "Connection key removed" };
+}));
+$("#gpuTest").addEventListener("click", e => run(e.currentTarget, () => api("/api/gpu/test", { method: "POST" })));
+$("#gpuLoadWorkflows").addEventListener("click", e => loadGpuWorkflows(e.currentTarget));
+$("#gpuSubmit").addEventListener("click", e => run(e.currentTarget, async () => {
+  const src = $("#gpuSource").value;
+  const [headset, file] = src ? src.split("/") : ["", ""];
+  const res = await api("/api/gpu/jobs", { method: "POST", json: {
+    workflow: $("#gpuWorkflow").value, prompt: $("#gpuPrompt").value, headset, file } });
+  renderGpuJobs((await api("/api/gpu/jobs")).jobs);
+  return res;
+}));

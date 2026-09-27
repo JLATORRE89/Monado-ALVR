@@ -34,7 +34,7 @@ h2 { font-size: 1.1rem; margin: 0 0 6px; }
 .brand-icon { width: 30px; height: 30px; fill: var(--accent); }
 .brand-icon .lens { fill: var(--surface); }
 .brand { flex: 1; }
-.pills { order: 3; flex: 1 0 100%; display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.pills { order: 3; flex: 1 0 100%; min-width: 0; display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
 .pills::-webkit-scrollbar { display: none; }
 .pill { flex: 0 0 auto; }
 .pill { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; font-weight: 600; padding: 4px 10px;
@@ -98,7 +98,7 @@ main { padding: 20px 16px calc(64px + env(safe-area-inset-bottom)); max-width: 1
 .field { display: grid; gap: 6px; margin: 8px 0; }
 .field > span { font-size: .85rem; font-weight: 600; color: var(--muted); }
 .field.compact { min-width: 220px; }
-input[type=text], input[type=number], select { width: 100%; min-height: 52px; padding: 10px 14px; border-radius: 12px;
+input[type=text], input[type=number], input[type=password], textarea, select { width: 100%; min-height: 52px; padding: 10px 14px; border-radius: 12px;
   border: 1px solid var(--line); background: var(--surface); color: var(--text); font: 1rem var(--font); }
 .switch { display: flex; align-items: center; gap: 12px; min-height: 52px; font-weight: 600; }
 .switch input { width: 24px; height: 24px; accent-color: var(--accent); }
@@ -141,3 +141,9 @@ input[type=text], input[type=number], select { width: 100%; min-height: 52px; pa
   .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* GPU worker add-on */
+textarea { resize: vertical; }
+.job { padding: 12px 0; border-top: 1px solid var(--line); display: grid; gap: 4px; }
+.job:first-child { border-top: 0; }
+.danger-text { color: var(--danger); }
