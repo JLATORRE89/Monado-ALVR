@@ -39,7 +39,7 @@
 - Runtime symbol resolution was verified: one loaded server-core .so provides `alvr_send_video_nal`.
 - Initial IDR can arrive before `video_channel_sender` exists.
 - Connection later reaches `SEND_START_STREAM -> GOT_STREAM_READY -> STREAM_SOCKET_CONNECT_OK -> VIDEO_CHANNEL_INSTALL -> MARK_STREAMING`.
-- A fresh-IDR request after install is now emitted successfully; consumption of `ServerCoreEvent::RequestIDR` is the current boundary.
+- `ServerCoreEvent::RequestIDR` is consumed by alvr_render `handleEvents()` and coalesced in `IDRScheduler` (resolved 2026-09-26/27).
 - Connection shutdown probes identify client streaming vs lifecycle causes if teardown recurs.
 
 ## Lessons 2026-09-26 (overnight)
