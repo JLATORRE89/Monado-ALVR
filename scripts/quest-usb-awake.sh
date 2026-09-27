@@ -3,7 +3,15 @@ set -Eeuo pipefail
 ROOT="${INTEL_XR_ROOT:-/ai/intel-xr-prototype}"
 CFG="$ROOT/src/Monado-ALVR/config/xr-build.json"
 ACTION="${1:-apply}"
-enabled="$(python3 -c 'import json,sys; print("1" if json.load(open(sys.argv[1])).get("android",{}).get("usb_stay_awake",False) else "0")' "$CFG")"
+# Workstation override (not committed): config/xr-build.local.json, e.g.
+#   {"android": {"usb_stay_awake": true}}
+LOCAL_CFG="$ROOT/src/Monado-ALVR/config/xr-build.local.json"
+enabled="$(python3 -c '
+import json, os, sys
+value = json.load(open(sys.argv[1])).get("android", {}).get("usb_stay_awake", False)
+if os.path.isfile(sys.argv[2]):
+    value = json.load(open(sys.argv[2])).get("android", {}).get("usb_stay_awake", value)
+print("1" if value else "0")' "$CFG" "$LOCAL_CFG")"
 case "$ACTION" in
  apply)
    command -v adb >/dev/null || { echo "ERROR: adb not found"; exit 1; }

@@ -117,3 +117,6 @@ project-files.txt
 *.pre-vk-debug
 *.pre-extension-source-debug
 *.pre-factory-fix
+
+# Workstation-local runtime config overrides
+config/xr-build.local.json
