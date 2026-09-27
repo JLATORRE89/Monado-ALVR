@@ -2,13 +2,13 @@
 
 ## CURRENT STATUS (2026-09-27 ~09:55)
 
-**Working:** end-to-end video (red/blue checkerboard confirmed in the Quest) over **USB**
-(ADB-forwarded TCP, lossless at 30 Mbit/s, 72/72 FPS). **Wi-Fi (2.4 GHz):** connects and adapts
-bitrate, but not yet confirmed stable in the headset; last attempt ended in a connect/disconnect
-loop caused by the gdb debug run (EINTR, now fixed) — needs a clean re-test.
+**Working:** end-to-end video over **USB** (ADB-forwarded TCP, lossless at 30 Mbit/s, 72/72 FPS)
+and over **2.4 GHz Wi-Fi** (stable, adaptive at ~3-6 Mbit/s on a ~3-4 Mbit/s link; operator can look
+around with minor edge clipping from ~110 ms latency). See W10.
 
 **Open tasks (in order):**
-1. Clean 2.4 GHz re-test with the normal service (all fixes below deployed). Operator: quit and
+1. DONE (W10): clean 2.4 GHz re-test. Next for Wi-Fi quality: packet pacing and a latency-bounded
+   send buffer (see W10). Operator: quit and
    reopen the ALVR client in the headset (or unplug USB while streaming). Watch
    `python3 scripts/alvr-stats.py 30`, `ENCODER_REOPEN`, `IDR_REQUEST_COALESCED`, journal
    `[INTEL-XR-FAULT]`.
@@ -377,3 +377,17 @@ Goal (operator): streaming must work on 2.4 GHz networks.
 - Builds: Monado rc=0, 0 warnings; server core deployed, sha256 `7fb92253…` target == deployed.
 - Not yet live-tested (headset client stopped accepting connections after the gdb loop).
 - Note: a stress test left the session in ConstantMbps 15; restored to Adaptive at ~09:55.
+
+### W10. 2.4 GHz live result (2026-09-27 09:55-09:58)
+- Normal service with W1-W9 deployed; client reloaded; connected over Wi-Fi (UDP).
+- 60 s: no crash, no disconnect, 24 drops only at start; send queue 45-75 KB (was ~4 MB);
+  Adaptive + congestion cap settled at 3-6.6 Mbit/s (floor 3). ALVR stats: network latency
+  ~50-100 ms, total ~100-140 ms (USB: 2.6 / 58.7 ms); estimate ~0.8 Mbit/s (clamped to min 3).
+  PC adapter TX ~3 Mbit/s with a standing queue => link capacity ~3-4 Mbit/s at this time
+  (was ~10 at 09:28, ~32 on 2026-09-26). Quest on 5 GHz 866 Mbit/s; bottleneck is the PC's
+  2.4 GHz rt2800usb adapter (ch 11).
+- **Operator: can look up/down/left/right with minor visual clipping** (edge clipping from
+  ~110 ms latency under reprojection).
+- Next candidates: packet pacing (reduce burst loss/queueing on 2.4 GHz); lower latency floor
+  (queue is ~160 ms at 3 Mbit/s: consider a smaller send buffer relative to bitrate); better
+  2.4 GHz channel/adapter placement (operator).
