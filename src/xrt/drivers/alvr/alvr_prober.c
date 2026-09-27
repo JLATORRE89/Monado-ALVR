@@ -55,8 +55,16 @@ alvr_auto_prober_autoprobe(struct xrt_auto_prober *xap,
 		return 0;
 	}
 
-	out_xdevs[0] = alvr_hmd_create();
-	return 1;
+	int count = 0;
+	out_xdevs[count++] = alvr_hmd_create();
+
+	struct xrt_device *left = NULL;
+	struct xrt_device *right = NULL;
+	if (alvr_controllers_create(&left, &right) == 2) {
+		out_xdevs[count++] = left;
+		out_xdevs[count++] = right;
+	}
+	return count;
 }
 
 struct xrt_auto_prober *
