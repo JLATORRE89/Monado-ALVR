@@ -414,3 +414,14 @@ Goal (operator): streaming must work on 2.4 GHz networks.
    pointers on the web UI inside VR.
 4. Web UI reachable from the Quest browser would require binding beyond 127.0.0.1 (security
    decision for the operator; currently localhost only).
+
+### W12. Exit fix + headset screenshots (2026-09-27 ~10:15-10:20)
+- In-headset exit verified by operator. Relaunch then failed: Android kept the process cached
+  after Activity.finish() and reused it; client never restarted (lobby placeholder only, 9943
+  refused, no client logs). Fixed (ALVR b13c4e5d): reset exit flag at start and
+  `std::process::exit(0)` after an in-app exit. Installed sha256 `f9258276…`; client reconnects.
+- Headset screenshots from the web UI (Monado-ALVR commit above): metacam TAKE_SCREENSHOT ->
+  pull to `logs/headset-screenshots/` -> gallery. Verified (1440x1440 JPEG of the streamed view).
+  Works for any foreground Quest app while ADB is connected. For Wi-Fi-only use, ADB over Wi-Fi
+  must be enabled once over USB (`adb tcpip 5555`) — not done (operator decision).
+- Still pending live test: W11 pacing / bitrate-sized send buffer on 2.4 GHz.
