@@ -1,7 +1,25 @@
 # Intel XR Prototype — Task Progress
 
+## OVERNIGHT RESULT (2026-09-26, in progress — updated during the session)
+
+**Status:** RequestIDR is consumed and forces a fresh IDR (proven PC-side and with a live
+Quest). Server video enqueue/dequeue/send is proven with 0 send errors. The Quest
+received and reassembled the first IDR packet, then received no further video packets.
+**Current boundary: Quest stream-socket receive after the first video packet.**
+
+Commits:
+- Monado-ALVR `xr-cleanup`: `603c25467` route RequestIDR into alvr_render IDRScheduler
+  (companion patch helper `scripts/apply-alvr-render-request-idr.py`).
+- Monado-ALVR `xr-cleanup`: `ac98803f1` seed alvr_render VAAPI rate control from the ALVR
+  session (`scripts/apply-alvr-render-encoder-bitrate.py`).
+- ALVR `intel-xr-client-diag`: `5401e13c` count video shard send results (VIDEO_SEND_STATS).
+
 ## Active blocker
-`ServerCoreEvent::RequestIDR` is successfully queued after `VIDEO_CHANNEL_INSTALL`, but no fresh encoded IDR has yet been observed. Trace the event receiver/consumer into Monado/alvr_render and wire it to the existing force-keyframe mechanism.
+The Quest client logs exactly one `VIDEO_PACKET_RECEIVED` (the first IDR, no loss) per
+stream, then none, while the server logs `VIDEO_SEND_STATS sent=1000 errors=0`. The
+decoder is created after the first packet (`MEDIACODEC_STARTED software=false`) but never
+gets input. Determine whether datagrams stop arriving at the Quest socket or the client's
+stream receive loop stops consuming them.
 
 ## Proven
 - [x] Quest client builds/installs and reaches OpenXR FOCUSED.
@@ -10,7 +28,7 @@
 - [x] Real Quest tracking accepted.
 - [x] Checkerboard reaches render and projection submission.
 - [x] Monado compositor present path reached.
-- [x] Encoder receives frame and produces ~95 KB H.264 IDR.
+- [x] Encoder receives frame and produces H.264 IDR.
 - [x] Annex-B `00 00 00 01` / prefix 4 verified.
 - [x] NAL parser -> Rust C ABI -> ServerCore send path verified.
 - [x] Initial IDR observed while `video_channel_sender=None`.
@@ -20,28 +38,111 @@
 - [x] Rust build freshness issue understood: explicitly build server_core, verify marker/mtime, deploy, compare hashes.
 - [x] Target/deployed server-core hashes matched after correct build.
 - [x] Build warning cleanup moved to scoped CMake configuration.
+- [x] RequestIDR consumer located: alvr_render `handleEvents()` (Encoder.cpp) polls
+      `alvr_poll_event` but dropped `ALVR_EVENT_REQUEST_IDR`.
+- [x] Existing force-IDR mechanism: alvr_render `IDRScheduler::InsertIDR()` /
+      `CheckIDRInsertion()` -> `PushFrame(ts, idr)` -> VAAPI `pict_type = AV_PICTURE_TYPE_I`.
+      `present()` bypassed it with a hardcoded `true` (every frame IDR).
+- [x] RequestIDR wired (603c25467); headset-free proof via ALVR `POST /api/insert-idr`
+      (same `ServerCoreEvent::RequestIDR` path): 3/3 `REQUEST_IDR_CONSUMED` -> next frame
+      `ENCODED_IDR requested=true`; P-frames in between; scheduler's 100 ms spacing works.
+- [x] Live Quest: client RequestIdr -> `DECODER_CONFIG_SENT` x2 -> `REQUEST_IDR_CONSUMED`
+      -> `ENCODED_IDR requested=true` (frames 9, 17).
+- [x] Server enqueue/dequeue/send: `VIDEO_CHANNEL_READY/ENQUEUE/DEQUEUE/VIDEO_PACKET_SENT
+      idr=true`; `VIDEO_SEND_STATS sent=1000 errors=0`; no "Dropping video packet".
+- [x] Quest receives first IDR intact: `VIDEO_PACKET_RECEIVED bytes=52066 idr=true loss=false`.
+- [x] Quest decoder config/creation: `CONTROL_DECODER_CONFIG` -> `DECODER_CREATE_BEGIN` ->
+      `MEDIACODEC_STARTED software=false` -> `DECODER_CREATED`. A second identical config is
+      correctly ignored (no re-create; not a stall).
 
 ## Next tasks
-- [ ] Locate every consumer/match arm for `ServerCoreEvent::RequestIDR`.
-- [ ] Identify existing alvr_render/encoder force-IDR API.
-- [ ] Wire RequestIDR to force-keyframe behavior with minimal architecture change.
-- [ ] Compile server_core directly and verify artifacts.
-- [ ] Verify a new `ENCODED_FRAME ... idr=true` occurs after `VIDEO_CHANNEL_INSTALL`.
-- [ ] Verify `VIDEO_CHANNEL_LOCK_OK present=true`.
-- [ ] Verify `VIDEO_CHANNEL_TRY_SEND_RESULT ok=true`.
-- [ ] Verify `VIDEO_CHANNEL_DEQUEUE` and `VIDEO_PACKET_SENT`.
-- [ ] Verify Quest packet receive, decoder config/IDR, decoder output, and displayed checkerboard.
-- [ ] If teardown occurs, capture `SHUTDOWN_TRIGGER client_streaming=... lifecycle=...` and fix the proven cause only.
+- [x] Locate every consumer/match arm for `ServerCoreEvent::RequestIDR`.
+- [x] Identify existing alvr_render/encoder force-IDR API.
+- [x] Wire RequestIDR to force-keyframe behavior with minimal architecture change.
+- [x] Compile and verify artifacts (Monado build clean, 0 warnings; markers in monado-service).
+- [x] Verify a new `ENCODED_IDR ... requested=true` occurs after `VIDEO_CHANNEL_INSTALL`.
+- [x] Verify `VIDEO_CHANNEL_LOCK_OK present=true` / ENQUEUE (VIDEO_CHANNEL_READY + ENQUEUE logged).
+- [x] Verify `VIDEO_CHANNEL_DEQUEUE` and `VIDEO_PACKET_SENT`.
+- [x] Quest packet receive (first packet only) and decoder config.
+- [ ] Explain why only the first video packet reaches `VIDEO_PACKET_RECEIVED`.
+- [ ] Decoder input/output and displayed checkerboard.
+- [ ] If teardown occurs, capture `SHUTDOWN_TRIGGER client_streaming=... lifecycle=...`.
+      Observed twice: `client_streaming=false lifecycle=Resumed` exactly when the Quest's
+      OpenXR session went VISIBLE -> STOPPING -> IDLE (activity paused / headset removed).
+      That is the headset leaving the app, not a server fault.
 
 ## After pixels
 - [ ] Save concise end-to-end evidence.
 - [ ] Separate production fixes from diagnostics.
 - [ ] Prepare clean tracking fixes for main.
 - [ ] Prepare video startup/RequestIDR fix for main after end-to-end verification.
-- [ ] Remove/rate-limit obsolete probes.
+- [ ] Remove/rate-limit obsolete probes (candidates: per-frame `[INTEL-XR-NAL] PREFIX_SIZE /
+      BEFORE_SEND / AFTER_SEND` in NalParsing.cpp — ~216 journal lines/s).
 - [ ] Leave a reproducible regression test.
 
-## Overnight completion
-Ideal: `VIDEO_CHANNEL_INSTALL -> RequestIDR -> fresh IDR -> enqueue -> dequeue -> packet sent -> Quest receive -> decoder output -> displayed checkerboard`.
+## Session log 2026-09-26 (overnight)
 
-Minimum useful result: identify the exact RequestIDR consumer path, implement/compile a narrow fix or document the blocker, update this file with commits/tests, and leave both repos buildable.
+### 1. RequestIDR consumer (boundary: RequestIDR emitted, no fresh IDR believed seen)
+- Evidence re-read: per-frame NAL probe showed ~3,494 `idr=1` frames sent after install in
+  the 21:02 run. "No fresh IDR" was an artifact of one-shot `ENCODED_FRAME`/`VIDEO_NAL_ENTER`
+  probes; every frame was an IDR because `present()` hardcoded `PushFrame(..., true)`.
+  Server-side `info!` markers live in `~/alvr_session.log`, not the journal.
+- Hypothesis: route `ALVR_EVENT_REQUEST_IDR` into the existing `IDRScheduler`.
+- Change: `scripts/apply-alvr-render-request-idr.py` (idempotent companion patch; alvr_render
+  is a detached pinned checkout, not a commit branch): CallbackManager `REQUEST_IDR` slot,
+  dispatch from `handleEvents()`, `InsertIDR()` registered once in `initEncoding()`,
+  `CheckIDRInsertion()` restored, skip frame if `GetEncoded` has no output.
+- Build: `cmake --build build/monado-alvr` rc=0, 0 warnings; markers present in
+  `monado-service`, binary newer than source. Commit `603c25467`.
+- Test: `/api/insert-idr` x3 -> `REQUEST_IDR_CONSUMED count=1..3` -> `ENCODED_IDR
+  idr_count=2..4 requested=true` ~10 ms later. RESULT: proven.
+
+### 2. Encoder rate control (found while verifying P-frames)
+- Observation: P-frames of a static solid-colour scene were exactly the IDR size (95.5 KB).
+- Root cause: VAAPI opened with hardcoded 500 Mbps CBR and framerate 0 —
+  `Settings::Load()` expects `openvr_config`, which `alvr_get_settings_json()` does not
+  return, so it throws on the first key and every alvr_render setting stays default
+  (`m_refreshRate=0`). Workstation uses Ubuntu's unpatched FFmpeg (libavcodec 60), whose
+  VAAPI rate control is fixed at `avcodec_open2()`.
+- Change: `scripts/apply-alvr-render-encoder-bitrate.py`: `m_refreshRate` from
+  `video.preferred_fps` (only that field), init bitrate from
+  `alvr_get_dynamic_encoder_params()`, never framerate <= 0. Commit `ac98803f1`.
+- Test: `ENCODER_INIT_BITRATE bps=30000000 fps=72 source=alvr`; every frame 52,084 B
+  (= 30 Mbit/72/8; Intel CBR pads each frame to budget). RequestIDR still works.
+- Note: Quest Wi-Fi is 5 GHz, 866 Mbit/s, RSSI -34 dBm; the old ~55 Mbit/s would not by
+  itself explain zero received packets. This is a correctness fix, not the root cause.
+- Not changed on purpose: other openvr_config-derived alvr_render settings (foveation,
+  colour correction, codec options) remain at defaults; loading them would change behaviour.
+
+### 3. Server shard send errors (hypothesis H3)
+- `StreamSender::send()` aborts a packet on the first failed shard and the result was ignored.
+- Change: ALVR `5401e13c` VIDEO_SEND_STATS / VIDEO_PACKET_SEND_ERROR (session log).
+- Build: `cargo build -p alvr_server_core` rc=0 (1 pre-existing upstream warning:
+  `server_to_client_pose` unused, from upstream `ba48a4d0`); marker in target .so; xtask
+  deploy; target/deployed sha256 `4581c6d5…` match; service maps the deployed .so.
+- Live Quest test 21:45:22-21:45:48: `VIDEO_SEND_STATS sent=500 errors=0`, `sent=1000
+  errors=0`. RESULT: H3 disproved.
+
+### 4. Quest receive after first packet (current)
+- Quest timeline (Quest clock = PC - 1 h): STREAMING at 20:45:22.38; first video only at
+  20:45:33.6 because Monado produced no frames until the checkerboard connected; packet 0
+  received intact; decoder created; then only `STREAM_RENDER no_decoded_frame` at 72 FPS.
+- Ruled out statically: unsubscribed stream IDs (server VIDEO/AUDIO/HAPTICS all
+  subscribed), buffer starvation (10 recycled buffers/stream), decoder re-create stall
+  (identical config is skipped), client state-lock ordering.
+- Installed APK sha256 `fd03ee08…` == 17:37 local build; it predates `cd285266` (STREAM_RENDER
+  rate limit), which is why logcat rotated in earlier runs.
+- Next probe (in progress): client `STREAM_RECV_STATS shards=N try_again=M` heartbeat in the
+  stream receive loop, plus passive watchers started 21:48 (8 h limit):
+  `logs/2026-09-26_21-48-20_quest-logcat-continuous.txt` and
+  `logs/2026-09-26_21-48-20_quest-udp9944-watch.txt` (Quest `/proc/net/udp` rx_queue/drops
+  for port 9944 + PC `ss` for 9944).
+
+### Operational lessons recorded
+- `pkill -f run-video-test` inside a shell whose command line contains that text kills the
+  shell itself (exit 144). Use `pkill -f '[r]un-video-test'`.
+- Do not run `scripts/build-intel-xr.sh` / `prepare-companions.sh` for incremental work:
+  they `reset --hard` alvr_render and detach ALVR at a pinned rev. Build with
+  `cmake --build build/monado-alvr` and re-apply `scripts/apply-*.py`.
+- `scripts/quest-usb-awake.sh` uses `adb` without `-s`; it fails when the Pixel 5 is also
+  attached. Quest serial: `1WMHHA42R81461`.
