@@ -1,6 +1,12 @@
 # Quest controllers through ALVR into Monado (W14 design)
 
-Status: design only, 2026-09-27. Nothing here is implemented yet. Controllers come before Loft
+Status 2026-09-27 16:35: steps 1-3 implemented in `src/xrt/drivers/alvr/alvr_controller.cpp`
+(poses, buttons, haptics; no alvr_render change: buttons are drained on the tracking callback
+instead of a new event handler). The Monado service assigns "ALVR Left/Right Touch Controller" to
+the left/right roles; the Loft (loft `input.c`) binds aim/trigger/B-Y/thumbstick/haptic. Awaiting
+the in-headset test. Env: `INTEL_XR_ALVR_CONTROLLERS=0` disables the devices,
+`INTEL_XR_ALVR_AIM_PITCH_DEG` (default -40) tunes the aim ray. Known noise: alvr_render prints
+"event handler for tag 6 not yet implemend" on stdout for each button batch. Controllers come before Loft
 polish, because desktop interaction and joystick locomotion both depend on them.
 
 ## What ALVR already exposes (C API, `alvr_binding.h` / `server_core/src/c_api.rs`)

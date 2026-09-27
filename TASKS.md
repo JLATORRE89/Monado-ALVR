@@ -114,7 +114,10 @@ alvr_render never drains `BUTTONS_UPDATED`, so server_core's button queue grows 
 session (fixed by W14 step 2).
 
 **Next human test:** USB then Wi-Fi look-around in the Loft (command above).
-**Next development task:** W14 step 1 (controller poses as Monado xrt_devices), then the Loft.
+**W14 status (16:35):** steps 1-3 (poses, buttons, haptics) built with 0 warnings and running:
+journal shows `[INTEL-XR-CTRL] CREATED`, roles left/right assigned; Loft `[LOFT] INPUT ready`.
+Pending in-headset evidence: `[INTEL-XR-CTRL] FIRST_POSE`, `BUTTON`, `HAPTIC`, `[LOFT] SELECT`.
+**Next development task:** confirm W14 in the headset, tune the aim pitch, then Loft locomotion (W14 step 4).
 
 ## STATUS SNAPSHOT (2026-09-27 ~09:55, superseded)
 
