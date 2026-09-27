@@ -76,6 +76,26 @@ the client, `VIDEO_SEND_STATS` in the server, fault handler (keep until SIGBUS u
 `bash scripts/xr-app.sh start loft`, confirm image + look-around, then unplug for Wi-Fi.
 **Next engineering task:** controllers, W14 step 1 (`docs/controllers.md`).
 
+## UPDATE (2026-09-27 ~17:35)
+
+**Controllers (W14): working in the headset.** Poses, buttons, haptics and trigger selection
+confirmed by the operator and the logs (`[INTEL-XR-CTRL] BUTTON/HAPTIC`, `[LOFT] SELECT`). Aim
+pitch left -50 / right -60 (a right-hand press landed 1.8 cm from a tile centre at 1.5 m). A
+"level and straight" hold read 50/37 degrees up with those settings; closed-loop pointing
+disagrees with that open-loop hold, so the pitch was left unchanged. Pose logging: Loft `poses`
+command.
+
+**Loft (github.com/JLATORRE89/loft):** 3D room is now the default backdrop (bar, stools,
+armchairs, windows onto a CC0 meadow), joystick walking and snap turn, sitting (point + trigger),
+menu hide (A/X), menu follow, Quest Home tile (closes the client, the Loft keeps running). Needs
+the operator's first look: whether Monado honours the projection layer's source alpha (windows
+should show trees, not black).
+
+**ALVR session:** `wired_client_autolaunch` disabled (see below). **Next development task (W15):**
+several headsets on this PC in one Loft: one Monado + ALVR instance per headset (own IPC socket,
+ALVR ports and config dir), the Loft instances sharing positions over a local socket so people see
+each other; limit is the Arc encoder (expect 2-3 streams at reduced resolution).
+
 ## CURRENT STATUS (2026-09-27 ~16:10)
 
 **Known-good baseline.** Monado compositor → alvr_render (Vulkan) → Intel VAAPI H.264 →
