@@ -271,3 +271,8 @@ Evidence so far: PC egress is a 2.4 GHz USB Wi-Fi adapter (~32 Mbit/s); loss app
   drop/IDR-wait warnings, VrApi FPS=72/72.
 - Next: raise bitrate toward 30 Mbit/s over USB (stop service, edit
   `video.bitrate.mode.ConstantMbps`, start); Wi-Fi anti-stutter follow-up above.
+- 30 Mbit/s over USB (2026-09-27 09:13; session backup
+  `backups/alvr-session-2026-09-27-pre-30mbps.json`): `ENCODER_INIT_BITRATE bps=30000000 fps=72`,
+  frames 52,116 B; Quest 1,687 packets `loss=false`, 0 lost, 1,687 `MEDIACODEC_OUTPUT`,
+  FPS=72/72, no drop warnings (`logs/2026-09-27_usb-30mbps-logcat.txt`). Session now: 30 Mbit/s,
+  avoid_video_glitching=true, wired client enabled. For Wi-Fi keep <=10 Mbit/s until the network changes.
