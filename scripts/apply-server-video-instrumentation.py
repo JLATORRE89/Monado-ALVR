@@ -124,57 +124,36 @@ def cleanup_companion_warnings() -> None:
     }""", 1))
             print(f"[cleanup] {utils}: make Optional::get() non-returning")
 
-    # alvr_binding.h is generated/ABI-facing and intentionally uses anonymous
-    # structs. Do not rewrite its layout. Suppress only GCC's pedantic warning
-    # locally around this external binding header.
+    # alvr_binding.h is a symlink to the xtask-generated alvr_server_core.h and
+    # intentionally uses anonymous structs. Pedantic suppression lives in CMake
+    # (AlvrRender, drv_alvr, target_alvr_comp.cpp), so never write into the
+    # generated header; strip guards installed by older helper revisions.
     if binding.is_file():
         text = binding.read_text()
-        marker = "INTEL_XR_PEDANTIC_GUARD"
-        # Remove any stale push/pop guard left by older helper revisions before
-        # installing the system-header form. A trailing diagnostic pop can undo
-        # the intended suppression while this header is parsed.
-        old_prefix = """/* INTEL_XR_PEDANTIC_GUARD: ABI-facing generated binding. */
-#if defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wpedantic"
-#endif
-"""
-        old_suffix = """
-#if defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
-"""
-        if old_prefix in text:
-            text = text.replace(old_prefix, "", 1)
-        if old_suffix in text:
-            text = text.replace(old_suffix, "", 1)
-        # A push/pop inside the header does not suppress diagnostics emitted while
-        # parsing anonymous structs reliably across all inclusion contexts. Treat
-        # this generated ABI header as a GCC system header instead: diagnostics
-        # originating in it are suppressed without changing its layout or ABI.
-        guard = """/* INTEL_XR_PEDANTIC_GUARD: generated ABI binding; do not rewrite layout. */
+        stale_guards = (
+            """/* INTEL_XR_PEDANTIC_GUARD: generated ABI binding; do not rewrite layout. */
 #if defined(__GNUC__)
 #pragma GCC system_header
 #endif
-"""
-        if marker not in text:
-            binding.write_text(guard + text)
-            print(f"[cleanup] {binding}: mark generated ABI binding as system header")
-        elif "#pragma GCC system_header" not in text:
-            # Replace the older push/pop guard installed by previous helper versions.
-            text = text.replace("""/* INTEL_XR_PEDANTIC_GUARD: ABI-facing generated binding. */
+""",
+            """/* INTEL_XR_PEDANTIC_GUARD: ABI-facing generated binding. */
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #endif
-""", guard, 1)
-            text = text.replace("""
+""",
+            """
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
-""", "", 1)
-            binding.write_text(text)
-            print(f"[cleanup] {binding}: upgrade pedantic guard to system-header scope")
+""",
+        )
+        cleaned = text
+        for stale in stale_guards:
+            cleaned = cleaned.replace(stale, "", 1)
+        if cleaned != text:
+            binding.write_text(cleaned)
+            print(f"[cleanup] {binding}: removed stale pedantic guard from generated header")
 
 cleanup_companion_warnings()
 alvr_render = root / "src" / "alvr_render" / "src" / "Encoder.cpp"
@@ -311,6 +290,56 @@ if nal_parser.is_file():
         print(f"[patched] {nal_parser}: [INTEL-XR-NAL] PARSER_ENTER / BEFORE_SEND")
     else:
         print(f"[already instrumented] {nal_parser}: [INTEL-XR-NAL] PARSER_ENTER")
+
+    # The parser -> alvr_send_video_nal boundary is proven. Per-frame PREFIX_SIZE /
+    # BEFORE_SEND / AFTER_SEND wrote ~216 synchronous stderr lines/s from the compositor
+    # thread; keep the first 5 frames and every 1000th.
+    patch_once(
+        nal_parser,
+        """    int8_t intelXrPrefix = getNalPrefixSize(buf);
+    fprintf(stderr, "[INTEL-XR-NAL] PREFIX_SIZE=%d codec=%d\\n", intelXrPrefix, codec);
+""",
+        """    static unsigned long long intelXrNalCount = 0;
+    ++intelXrNalCount;
+    bool const intelXrNalLog = intelXrNalCount <= 5 || intelXrNalCount % 1000 == 0;
+
+    int8_t intelXrPrefix = getNalPrefixSize(buf);
+    if (intelXrNalLog) {
+        fprintf(stderr, "[INTEL-XR-NAL] PREFIX_SIZE=%d codec=%d count=%llu\\n", intelXrPrefix, codec, intelXrNalCount);
+    }
+""",
+        "intelXrNalLog",
+    )
+    patch_once(
+        nal_parser,
+        """    fprintf(stderr,
+            "[INTEL-XR-NAL] BEFORE_SEND codec=%d len=%d idr=%d head=%02x %02x %02x %02x\\n",
+            codec,
+            len,
+            isIdr ? 1 : 0,
+            len > 0 ? buf[0] : 0,
+            len > 1 ? buf[1] : 0,
+            len > 2 ? buf[2] : 0,
+            len > 3 ? buf[3] : 0);
+    alvr_send_video_nal(targetTimestampNs, viewParams, isIdr, buf, len);
+    fprintf(stderr, "[INTEL-XR-NAL] AFTER_SEND\\n");""",
+        """    if (intelXrNalLog) {
+        fprintf(stderr,
+                "[INTEL-XR-NAL] BEFORE_SEND codec=%d len=%d idr=%d head=%02x %02x %02x %02x\\n",
+                codec,
+                len,
+                isIdr ? 1 : 0,
+                len > 0 ? buf[0] : 0,
+                len > 1 ? buf[1] : 0,
+                len > 2 ? buf[2] : 0,
+                len > 3 ? buf[3] : 0);
+    }
+    alvr_send_video_nal(targetTimestampNs, viewParams, isIdr, buf, len);
+    if (intelXrNalLog) {
+        fprintf(stderr, "[INTEL-XR-NAL] AFTER_SEND\\n");
+    }""",
+        "if (intelXrNalLog) {\n        fprintf(stderr, \"[INTEL-XR-NAL] AFTER_SEND",
+    )
 
 print()
 print("Server video instrumentation is applied.")
