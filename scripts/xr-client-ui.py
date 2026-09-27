@@ -15,7 +15,8 @@ EDITABLE={
 }
 SHOTS_DIR="/ai/intel-xr-prototype/logs/headset-screenshots"
 QUEST_SHOTS="/sdcard/Oculus/Screenshots"
-SHOT_NAME=re.compile(r"^[A-Za-z0-9._-]+\.(jpg|png)$")
+QUEST_VIDEOS="/sdcard/Oculus/VideoShots"
+SHOT_NAME=re.compile(r"^[A-Za-z0-9._-]+\.(jpg|png|mp4)$")
 ADB=__import__("shutil").which("adb") or "/ai/android-sdk/platform-tools/adb"
 def adb(*args,timeout=20):
     return subprocess.run([ADB,*args],capture_output=True,text=True,timeout=timeout)
@@ -27,9 +28,31 @@ def quest_serial():
             if "package:" in adb("-s",bits[0],"shell","pm","path","com.oculus.metacam").stdout:
                 return bits[0]
     raise RuntimeError("No Quest connected over ADB (USB or ADB over Wi-Fi)")
-def quest_shots(serial):
-    out=adb("-s",serial,"shell","ls","-t",QUEST_SHOTS).stdout.split()
+def quest_shots(serial,folder=QUEST_SHOTS):
+    out=adb("-s",serial,"shell","ls","-t",folder).stdout.split()
     return [x for x in out if SHOT_NAME.match(x)]
+CAPTURE_SERVICE="com.oculus.metacam/.capture.CaptureService"
+recording={"serial":None,"before":set()}
+def start_headset_recording():
+    serial=quest_serial()
+    recording["serial"]=serial
+    recording["before"]=set(quest_shots(serial,QUEST_VIDEOS))
+    # Horizon OS action names (START_CAPTURE/STOP_CAPTURE are rejected as invalid).
+    adb("-s",serial,"shell","am","startservice","-n",CAPTURE_SERVICE,"-a","START_INTERNAL_CAPTURE_TO_DISK")
+def stop_headset_recording():
+    serial=recording["serial"] or quest_serial()
+    adb("-s",serial,"shell","am","startservice","-n",CAPTURE_SERVICE,"-a","STOP_INTERNAL_CAPTURE_TO_DISK")
+    for _ in range(60):
+        time.sleep(0.5)
+        new=[x for x in quest_shots(serial,QUEST_VIDEOS) if x not in recording["before"]]
+        if new:
+            time.sleep(1.0)  # let the muxer finalize the MP4
+            os.makedirs(SHOTS_DIR,exist_ok=True)
+            res=adb("-s",serial,"pull",QUEST_VIDEOS+"/"+new[0],os.path.join(SHOTS_DIR,new[0]),timeout=300)
+            if res.returncode!=0: raise RuntimeError(res.stderr.strip() or "adb pull failed")
+            recording["serial"]=None
+            return new[0]
+    raise RuntimeError("No recording was saved (was recording started? is the headset awake?)")
 def take_headset_screenshot():
     serial=quest_serial()
     before=set(quest_shots(serial))
@@ -80,14 +103,15 @@ pre{background:var(--bg);padding:12px;border-radius:8px;overflow-x:auto;font-siz
 @media (min-width:720px){body{max-width:960px;margin:0 auto}button{width:auto;min-width:200px;margin:6px 8px 6px 0}input,select{width:auto;min-width:320px}}
 </style>
 <h1>Intel XR Clients</h1><div id=stack>Checking stack...</div>
-<section><h2>Headset screenshot</h2><p>Captures what the headset wearer sees (any app). Needs ADB (USB or ADB over Wi-Fi). Saved to <code>logs/headset-screenshots/</code>.</p><button onclick="shot()">Take headset screenshot</button><span id=shotmsg></span><div id=shots></div></section>
+<section><h2>Headset capture</h2><p>Screenshots and video (with audio) of what the headset wearer sees (any app). Needs ADB (USB or ADB over Wi-Fi). Saved to <code>logs/headset-screenshots/</code>.</p><button onclick="shot()">Take headset screenshot</button><button onclick="rec('start')">Start recording</button><button class=danger onclick="rec('stop')">Stop recording</button><span id=shotmsg></span><div id=shots></div></section>
 <section><h2>Test app</h2><button onclick="app('start')">Start test app</button><button onclick="app('stop')">Exit test app</button><button class=danger onclick="app('stop-all')">Exit app + stop runtime</button><span id=appmsg></span></section><p>Default policy: <b>auto-accept protocol-valid ALVR clients</b>.</p>
 <h2>Settings</h2><p>Edit any item in <code>config/xr-build.json</code>.</p><select id=settingSelect onchange="showSetting()"><option value="">Select a setting...</option></select><span id=settingEditor></span><button onclick="saveSelectedSetting()">Update setting</button><button onclick="service('restart')">Restart services</button><button class=danger onclick="if(confirm('Rebuild runs build-intel-xr.sh, which resets alvr_render (reset --hard) and checks ALVR out at a pinned old revision, discarding the companion fixes. Continue?'))service('rebuild')">Rebuild runtime (destructive)</button><span id=setmsg></span><h2>Approved MAC devices</h2><input id=file type=file accept=".json,.xlsx"><button onclick="upload()">Import JSON/XLSX</button><pre id=approved></pre>
 <h2>ALVR clients</h2><button onclick="clearClients()">Clear client cache</button><span id=msg></span><div id=x>Loading...</div>
 <script>
 async function stackStatus(){try{let r=await fetch('/api/status');let j=await r.json();stack.innerHTML='<b>Runtime:</b> '+j.runtime+' &nbsp; <b>API:</b> '+j.api+' &nbsp; <b>Test app:</b> '+j.app+' &nbsp; <b>UI:</b> READY'}catch(e){stack.textContent='Stack status unavailable: '+e}}
 async function shot(){shotmsg.textContent=' Capturing...';try{let r=await fetch('/api/headset/screenshot',{method:'POST'});let j=await r.json();shotmsg.textContent=' '+(r.ok?'Saved '+j.file:'Failed: '+(j.error||r.status));loadShots()}catch(e){shotmsg.textContent=' Failed: '+e}}
-async function loadShots(){try{let r=await fetch('/api/headset/screenshots');let j=await r.json();shots.innerHTML=(j.files||[]).map(f=>'<a href="/shots/'+f+'" target=_blank><img src="/shots/'+f+'" alt="'+f+'" loading=lazy style="width:100%;max-width:420px;border-radius:8px;margin:6px 0"></a><div style="font-size:.8rem">'+f+'</div>').join('')}catch(e){}}
+async function rec(a){shotmsg.textContent=a=='start'?' Starting recording...':' Stopping and downloading...';try{let r=await fetch('/api/headset/recording/'+a,{method:'POST'});let j=await r.json();shotmsg.textContent=' '+(r.ok?(j.file?'Saved '+j.file:'Recording...'):'Failed: '+(j.error||r.status));loadShots()}catch(e){shotmsg.textContent=' Failed: '+e}}
+async function loadShots(){try{let r=await fetch('/api/headset/screenshots');let j=await r.json();shots.innerHTML=(j.files||[]).map(f=>(f.endsWith('.mp4')?'<video src="/shots/'+f+'" controls preload=metadata style="width:100%;max-width:420px;border-radius:8px;margin:6px 0"></video>':'<a href="/shots/'+f+'" target=_blank><img src="/shots/'+f+'" alt="'+f+'" loading=lazy style="width:100%;max-width:420px;border-radius:8px;margin:6px 0"></a>')+'<div style="font-size:.8rem">'+f+'</div>').join('')}catch(e){}}
 async function app(a){appmsg.textContent=' '+a+'...';try{let r=await fetch('/api/app/'+a,{method:'POST'});let j=await r.json();appmsg.textContent=' '+(r.ok?j.message:'Failed: '+(j.error||r.status))}catch(e){appmsg.textContent=' Failed: '+e}stackStatus()}
 async function service(a){setmsg.textContent=' '+a+'...';let r=await fetch('/api/service/'+a,{method:'POST'});let j=await r.json();setmsg.textContent=r.ok?' '+j.message:' Failed: '+(j.error||r.status);stackStatus();load()}
 let configValues={};
@@ -113,7 +137,8 @@ class H(BaseHTTPRequestHandler):
             path=os.path.join(SHOTS_DIR,name)
             if not SHOT_NAME.match(name) or not os.path.isfile(path): return self.sendx(404,b"{}")
             with open(path,"rb") as f: data=f.read()
-            return self.sendx(200,data,"image/png" if name.endswith(".png") else "image/jpeg")
+            typ="video/mp4" if name.endswith(".mp4") else "image/png" if name.endswith(".png") else "image/jpeg"
+            return self.sendx(200,data,typ)
         if self.path=="/api/status":
             runtime=subprocess.run(["systemctl","--user","is-active","intel-xr-monado.service"],capture_output=True,text=True).stdout.strip()
             try:req("/api/ping"); api="READY"
@@ -147,6 +172,12 @@ class H(BaseHTTPRequestHandler):
                 except Exception as e2:return self.sendx(502,json.dumps({"error":str(e),"fallback_error":str(e2)}).encode())
         self.sendx(404,b"{}")
     def do_POST(self):
+        if self.path=="/api/headset/recording/start":
+            try:start_headset_recording();return self.sendx(200,json.dumps({"recording":True}).encode())
+            except Exception as e:return self.sendx(500,json.dumps({"error":str(e)}).encode())
+        if self.path=="/api/headset/recording/stop":
+            try:return self.sendx(200,json.dumps({"file":stop_headset_recording()}).encode())
+            except Exception as e:return self.sendx(500,json.dumps({"error":str(e)}).encode())
         if self.path=="/api/headset/screenshot":
             try:return self.sendx(200,json.dumps({"file":take_headset_screenshot()}).encode())
             except Exception as e:return self.sendx(500,json.dumps({"error":str(e)}).encode())
