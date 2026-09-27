@@ -218,13 +218,76 @@ patch_once(
     "[INTEL-XR-SERVER] PARSE_FRAME_NALS_ENTER",
 )
 
+# Instrument the companion NAL parser itself. This file is not owned by Monado-ALVR,
+# so keep the patch idempotent alongside the Encoder.cpp companion patch.
+nal_parser = root / "src" / "alvr_render" / "src" / "alvr_server" / "NalParsing.cpp"
+if nal_parser.is_file():
+    text = nal_parser.read_text()
+    if "[INTEL-XR-NAL] PARSER_ENTER" not in text:
+        if "#include <stdio.h>" not in text:
+            text = text.replace("#include <string.h>\n", "#include <string.h>\n#include <stdio.h>\n", 1)
+        old = """    static bool av1GotFrame = false;
+
+    if ((unsigned)len < sizeof(NAL_PREFIX_4B)) {
+        return;
+    }
+
+    if (codec == ALVR_CODEC_H264) {"""
+        new = """    static bool av1GotFrame = false;
+    static bool intelXrParserLogged = false;
+
+    if (!intelXrParserLogged) {
+        fprintf(stderr,
+                "[INTEL-XR-NAL] PARSER_ENTER codec=%d len=%d idr=%d head=%02x %02x %02x %02x\\n",
+                codec,
+                len,
+                isIdr ? 1 : 0,
+                len > 0 ? buf[0] : 0,
+                len > 1 ? buf[1] : 0,
+                len > 2 ? buf[2] : 0,
+                len > 3 ? buf[3] : 0);
+        intelXrParserLogged = true;
+    }
+
+    if ((unsigned)len < sizeof(NAL_PREFIX_4B)) {
+        fprintf(stderr, "[INTEL-XR-NAL] DROP_SHORT_BUFFER len=%d\\n", len);
+        return;
+    }
+
+    int8_t intelXrPrefix = getNalPrefixSize(buf);
+    fprintf(stderr, "[INTEL-XR-NAL] PREFIX_SIZE=%d codec=%d\\n", intelXrPrefix, codec);
+
+    if (codec == ALVR_CODEC_H264) {"""
+        if old not in text:
+            raise SystemExit(f"ERROR: NAL parser insertion point missing: {nal_parser}")
+        text = text.replace(old, new, 1)
+        old_send = """    alvr_send_video_nal(targetTimestampNs, viewParams, isIdr, buf, len);"""
+        new_send = """    fprintf(stderr,
+            "[INTEL-XR-NAL] BEFORE_SEND codec=%d len=%d idr=%d head=%02x %02x %02x %02x\\n",
+            codec,
+            len,
+            isIdr ? 1 : 0,
+            len > 0 ? buf[0] : 0,
+            len > 1 ? buf[1] : 0,
+            len > 2 ? buf[2] : 0,
+            len > 3 ? buf[3] : 0);
+    alvr_send_video_nal(targetTimestampNs, viewParams, isIdr, buf, len);
+    fprintf(stderr, "[INTEL-XR-NAL] AFTER_SEND\\n");"""
+        if old_send not in text:
+            raise SystemExit(f"ERROR: NAL send insertion point missing: {nal_parser}")
+        text = text.replace(old_send, new_send, 1)
+        nal_parser.write_text(text)
+        print(f"[patched] {nal_parser}: [INTEL-XR-NAL] PARSER_ENTER / BEFORE_SEND")
+    else:
+        print(f"[already instrumented] {nal_parser}: [INTEL-XR-NAL] PARSER_ENTER")
+
 print()
 print("Server video instrumentation is applied.")
 print("Expected markers:")
 print("  FRAME_RECEIVED_FROM_MONADO   (Monado-ALVR repository source)")
 print("  ENCODER_INPUT                (alvr_render companion)")
 print("  ENCODED_FRAME ... idr=...    (alvr_render companion)")
-print("  PARSE_FRAME_NALS_ENTER       (alvr_render companion)")
+print("  PARSE_FRAME_NALS_ENTER       (alvr_render companion)")\nprint("  NAL PARSER_ENTER/PREFIX      (NalParsing.cpp companion)")\nprint("  NAL BEFORE_SEND/AFTER_SEND   (NalParsing.cpp companion)")
 print("  VIDEO_NAL_ENTER              (JLATORRE89/ALVR branch)")
 print("  VIDEO_CHANNEL_ENQUEUE        (JLATORRE89/ALVR branch)")
 print("  VIDEO_CHANNEL_DEQUEUE        (JLATORRE89/ALVR branch)")
