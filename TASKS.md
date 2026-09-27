@@ -98,6 +98,10 @@ causes double vision); `avoid_video_glitching=true`; transcoding/emulated view w
 (ALVR aligns to 1824×1984); `server_send_buffer_bytes=Custom(131072)`,
 `max_queued_server_video_frames=3` (Wi-Fi limits; wired overrides them in code to max buffer and
 16 frames); wired client `Custom("alvr.client.monado")`.
+`wired_client_autolaunch` disabled (2026-09-27 17:19): with it on, ALVR relaunched the client over
+ADB about once a second, so the Loft's Quest Home tile could not leave the client. On USB, open
+the client from the Quest library by hand; ports are still forwarded automatically. Backup:
+`backups/alvr-session-2026-09-27_17-18-46-pre-autolaunch-off.json`.
 - USB: ADB forward 9943/9944, TCP; measured ~76 Mbit/s, 72 FPS, lossless.
 - Wi-Fi: UDP via the 2.4 GHz rt2800usb adapter (~3–32 Mbit/s); Adaptive + AIMD + pacing 1.5×.
 
