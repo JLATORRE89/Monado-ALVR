@@ -5,7 +5,7 @@ Status 2026-09-27 16:35: steps 1-3 implemented in `src/xrt/drivers/alvr/alvr_con
 instead of a new event handler). The Monado service assigns "ALVR Left/Right Touch Controller" to
 the left/right roles; the Loft (loft `input.c`) binds aim/trigger/B-Y/thumbstick/haptic. Awaiting
 the in-headset test. Env: `INTEL_XR_ALVR_CONTROLLERS=0` disables the devices,
-`INTEL_XR_ALVR_AIM_PITCH_DEG` (default -40) tunes the aim ray. Known noise: alvr_render prints
+`INTEL_XR_ALVR_AIM_PITCH_DEG` (default -50; -40 pointed a little high on Quest 2) tunes the aim ray. Known noise: alvr_render prints
 "event handler for tag 6 not yet implemend" on stdout for each button batch. Controllers come before Loft
 polish, because desktop interaction and joystick locomotion both depend on them.
 

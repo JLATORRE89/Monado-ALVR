@@ -53,6 +53,8 @@ case "${1:-status}" in
     mkdir -p "$LOGDIR"
     log="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_xr-app-$want.log"
     if [[ "$want" == loft ]]; then
+      # Exit from inside the Loft also closes the Quest client (back to Quest Home).
+      XR_LOFT_ON_EXIT="${XR_LOFT_ON_EXIT-bash $MONADO/scripts/quest-client-close.sh}" \
       XR_RUNTIME_JSON="$ROOT/build/monado-alvr/openxr_monado-dev.json" \
       LD_LIBRARY_PATH="$ROOT/build/openxr-demo/src/loader:${LD_LIBRARY_PATH:-}" \
         setsid nohup "$LOFT_BIN" >"$log" 2>&1 </dev/null &

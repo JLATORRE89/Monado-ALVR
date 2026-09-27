@@ -45,7 +45,7 @@
 DEBUG_GET_ONCE_LOG_OPTION(alvr_ctrl_log, "ALVR_CTRL_LOG", U_LOGGING_INFO)
 DEBUG_GET_ONCE_BOOL_OPTION(alvr_controllers, "INTEL_XR_ALVR_CONTROLLERS", true)
 // Aim ray relative to the grip pose, degrees about the grip X axis (negative pitches down).
-DEBUG_GET_ONCE_NUM_OPTION(alvr_aim_pitch_deg, "INTEL_XR_ALVR_AIM_PITCH_DEG", -40)
+DEBUG_GET_ONCE_NUM_OPTION(alvr_aim_pitch_deg, "INTEL_XR_ALVR_AIM_PITCH_DEG", -50)
 
 #define CTRL_INFO(c, ...) U_LOG_XDEV_IFL_I(&(c)->base, (c)->log_level, __VA_ARGS__)
 
