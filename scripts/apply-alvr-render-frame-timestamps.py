@@ -115,7 +115,7 @@ patch_once(
     """    ParseFrameNals(encoder->GetCodec(), viewParams, framePacket.data, framePacket.size, framePacket.pts, framePacket.isIDR);""",
     """    u64 const frameTimestampNs = trackingTimestampNs != 0 ? trackingTimestampNs : framePacket.pts;
     ParseFrameNals(encoder->GetCodec(), viewParams, framePacket.data, framePacket.size, frameTimestampNs, framePacket.isIDR);""",
-    "u64 const frameTimestampNs",
+    "frameTimestampNs, framePacket.isIDR)",
 )
 
 # Frames outpace tracking samples (Monado ~90 Hz vs Quest tracking 72 Hz), so several frames

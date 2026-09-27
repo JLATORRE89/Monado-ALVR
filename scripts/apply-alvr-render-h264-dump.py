@@ -49,7 +49,8 @@ encoder_cpp = root / "src" / "alvr_render" / "src" / "Encoder.cpp"
 if not encoder_cpp.is_file():
     raise SystemExit(f"ERROR: required source file missing: {encoder_cpp}")
 
-logs = root / "logs"
+# Log directory baked into the patch; INTEL_XR_LOG_DIR overrides <root>/logs.
+logs = Path(os.environ.get("INTEL_XR_LOG_DIR", root / "logs"))
 
 patch_once(
     encoder_cpp,

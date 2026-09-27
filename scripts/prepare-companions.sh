@@ -188,29 +188,9 @@ s=s.replace('header.views_params', 'header.global_view_params')
 p.write_text(s)
 PY
 
-echo "=== Apply Monado/ALVR ABI compatibility ==="
-for f in "$ALVR_RENDER/src/Encoder.cpp" "$ALVR_RENDER/src/EventManager.hpp"; do
-    sed -i       -e 's/ALVR_EVENT_VIEWS_PARAMS/ALVR_EVENT_LOCAL_VIEW_PARAMS/g'       -e 's/event\.views_params/event.local_view_params/g'       "$f"
-done
-
-echo "=== Apply Intel Arc DMA-BUF compatibility ==="
-python3 - "$ALVR_RENDER/src/Renderer.cpp" <<'PY'
-from pathlib import Path
-import sys
-p = Path(sys.argv[1])
-s = p.read_text()
-old = "bool haveDrmModifiers = true;"
-new = """// Intel ANV can export DMA-BUF, but the historical DRM-modifier image
-    // creation path crashes during vkCreateImage on the tested Arc A750/Mesa
-    // stack. Keep DMA-BUF for FFmpeg/VAAPI, but use the linear fallback.
-    const bool isIntel = ctx.physDev.getProperties().vendorID == 0x8086;
-    bool haveDrmModifiers = !isIntel;"""
-if old not in s and new not in s:
-    raise SystemExit("ERROR: expected DRM modifier switch not found")
-if old in s:
-    s = s.replace(old, new, 1)
-p.write_text(s)
-PY
+echo "=== Apply alvr_render base compatibility (ABI rename, Intel linear DMA-BUF) ==="
+INTEL_XR_ROOT="$ROOT" python3 "$ROOT/src/Monado-ALVR/scripts/apply-alvr-render-base-compat.py"
+echo "Full companion state: bash scripts/apply-alvr-render-companion.sh"
 
 echo "=== Companion state ==="
 git -C "$ALVR" log -1 --oneline

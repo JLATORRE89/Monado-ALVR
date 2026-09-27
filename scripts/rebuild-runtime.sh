@@ -9,16 +9,7 @@ MONADO="$ROOT/src/Monado-ALVR"
 ALVR="$ROOT/src/alvr-monado"
 
 echo "=== Apply alvr_render companion patches ==="
-for helper in \
-  apply-server-video-instrumentation.py \
-  apply-alvr-render-request-idr.py \
-  apply-alvr-render-encoder-bitrate.py \
-  apply-alvr-render-intel-map-output.py \
-  apply-alvr-render-dynamic-bitrate.py \
-  apply-alvr-render-frame-timestamps.py \
-  apply-alvr-render-idr-dedup.py; do
-  python3 "$MONADO/scripts/$helper" | grep -E "^\[|ERROR" || true
-done
+bash "$MONADO/scripts/apply-alvr-render-companion.sh"
 
 echo "=== Build and deploy ALVR server core ==="
 (cd "$ALVR" && cargo build -p alvr_server_core)

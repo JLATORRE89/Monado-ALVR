@@ -120,7 +120,7 @@ patch_once(
     encoder_cpp,
     """[this]() { idrScheduler.InsertIDR(); }""",
     """[this]() { idrScheduler.RequestIDR(); }""",
-    "idrScheduler.RequestIDR();",
+    "[this]() { idrScheduler.RequestIDR(); }",
 )
 
 patch_once(
