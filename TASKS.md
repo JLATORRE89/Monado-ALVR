@@ -276,3 +276,29 @@ Evidence so far: PC egress is a 2.4 GHz USB Wi-Fi adapter (~32 Mbit/s); loss app
   frames 52,116 B; Quest 1,687 packets `loss=false`, 0 lost, 1,687 `MEDIACODEC_OUTPUT`,
   FPS=72/72, no drop warnings (`logs/2026-09-27_usb-30mbps-logcat.txt`). Session now: 30 Mbit/s,
   avoid_video_glitching=true, wired client enabled. For Wi-Fi keep <=10 Mbit/s until the network changes.
+
+## Wi-Fi / 2.4 GHz work (2026-09-27)
+Goal (operator): streaming must work on 2.4 GHz networks.
+
+### W1. Runtime bitrate (commit 8d9a9f91c)
+- alvr_render never applied ALVR's dynamic encoder params; Ubuntu FFmpeg 6.1 VAAPI also
+  ignores runtime `bit_rate` changes (measured). `scripts/apply-alvr-render-dynamic-bitrate.py`
+  polls `alvr_get_dynamic_encoder_params()` per frame and re-opens the VAAPI encoder when
+  the per-frame budget changes >= 10% (decrease after >= 1 s, increase after >= 5 s).
+- Measured: re-open 8-9 ms; frames 17,394 B (10 Mbps) -> 62,542 (30) -> 10,450 (5) -> 62,542 (30).
+
+### W2. Frame timestamps (commit 3ce2701f5)
+- ALVR stats/Adaptive and the client's pose lookup key frames by tracking `poll_timestamp`;
+  alvr_render sent its frame counter, so no latency was ever measured.
+  `scripts/apply-alvr-render-frame-timestamps.py` tags frames with the latest tracking
+  timestamp and calls `alvr_report_present/composed`.
+- USB result: `FRAME_TIMESTAMP source=tracking`; Quest 570 packets, 0 lost, 72/72 FPS.
+  `scripts/alvr-stats.py 10` (reads ws://127.0.0.1:8082/api/events): network_latency 2.6 ms,
+  total 58.7 ms, estimated throughput ~114-118 Mbit/s, requested 30 Mbit/s (max clamp).
+
+### W3. Adaptive mode enabled (session; backup
+`backups/alvr-session-2026-09-27-pre-adaptive.json`)
+- `video.bitrate.mode = Adaptive`, min 3 Mbit/s, max 30 Mbit/s (other Adaptive defaults).
+- Next: 2.4 GHz test — unplug USB (wired entry then not ready), let the client connect over
+  Wi-Fi, watch `scripts/alvr-stats.py 30` (requested bitrate should fall toward the
+  link's capacity) and Quest `loss=` counts / `ENCODER_REOPEN` lines.
