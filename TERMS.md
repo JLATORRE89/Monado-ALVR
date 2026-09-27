@@ -236,6 +236,10 @@ EINTR means a system call was interrupted by a signal and should be retried.
 **Wired client** — ALVR session entry `client.wired`; enables USB streaming via ADB forwarding.
 
 **Checkerboard** — the test OpenXR app (`demo/checkerboard`): red left eye, blue right eye.
-Start/exit it with `bash scripts/xr-app.sh start|stop` or the web UI at http://127.0.0.1:8083.
+Start/exit it with `bash scripts/xr-app.sh start|stop` or the XR Control Panel add-on at http://127.0.0.1:8083.
+
+**Add-on / XR Control Panel** — the optional web UI in `addons/xr-control-panel/` (install with
+`bash addons/xr-control-panel/install.sh --runtime-root /ai/intel-xr-prototype`, remove with
+`uninstall.sh`). The runtime works without it.
 
 **In-headset exit** — hold the left controller menu (≡) button for 2 s while streaming.

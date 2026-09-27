@@ -429,3 +429,25 @@ Goal (operator): streaming must work on 2.4 GHz networks.
   `START_/STOP_INTERNAL_CAPTURE_TO_DISK` -> MP4 1920x1080 H.264 + AAC pulled to
   `logs/headset-screenshots/`. (`START_CAPTURE`/`STOP_CAPTURE` log "Invalid action" on this OS.)
   SideQuest uses the same ADB mechanisms, so the web UI does not need SideQuest.
+
+### W13. XR Control Panel add-on (2026-09-27 ~10:25-10:42)
+- Operator: web UI must manage multiple headsets, work offline, look professional, and be a
+  separately installable/removable module. Built `addons/xr-control-panel/` (commit 8a5004fb4):
+  install.sh/uninstall.sh, own user unit `xr-control-panel.service`, config
+  `~/.config/xr-control-panel/config.json`, captures `~/.local/share/xr-control-panel/captures/<serial>/`.
+- Runtime decoupled: monado-service.sh / xr-support.sh no longer start or require the UI; old
+  `xr-client-ui.*` and unit removed. Verified: panel uninstalled -> runtime restart/ensure/status/
+  test app all OK -> reinstall keeps config and captures.
+- `scripts/rebuild-runtime.sh`: safe incremental rebuild used by the panel.
+- Test: headless Chrome click-through (DevTools over pipe; test in session scratchpad) 25/25 PASS
+  + approve/forget/clear (session backup restored) + full rebuild OK; no script errors; no
+  external requests. Found and fixed: old page never parsed (`\'` escaping); XLSX needed
+  openpyxl (now CSV + clear error); installer f-string bug; mobile top bar hid tabs.
+- Lobby capture works (client lobby = black diagnostic HUD "STREAM STOPPED").
+
+## Next (operator request): Loft lobby demo app
+- PC OpenXR app `demo/loft/`: world-locked tiles (OpenXR quad layers, CPU-rendered textures with
+  embedded bitmap font, offline), gaze + 1.5 s dwell selection (no PC controller input yet),
+  mini apps: Checkerboard, Color/gradient test, Latency/motion bars, Picture viewer (later WebM).
+  "Back" tile below view. Panel: mini-app picker on Streaming tab via a local control file;
+  `xr-app.sh start loft|checkerboard`.

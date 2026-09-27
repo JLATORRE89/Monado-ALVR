@@ -32,6 +32,10 @@ cuts bitrate (AIMD); EINTR is retried; IDR requests are de-duplicated. alvr_rend
 as idempotent `scripts/apply-*.py` helpers (order in TASKS.md) because alvr_render is a pinned
 detached checkout. Live ALVR session settings differ from defaults; see TASKS.md.
 
+## Add-ons
+`addons/xr-control-panel/` is an optional, separately installed web UI (multi-headset management,
+captures, runtime controls). The runtime must never depend on it; see its README.
+
 ## Procedure
 Read `RULES.md` and `TASKS.md` first. Inspect existing code before patching. Prefer existing ALVR/Monado mechanisms. Make one narrow change per hypothesis. Compile the directly changed component first, verify the actual artifact, then rebuild/restart dependencies. Run one controlled test, record evidence in `TASKS.md`, and commit meaningful changes.
 
