@@ -11,6 +11,12 @@ target_include_directories(drv_includes INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
 if(XRT_BUILD_DRIVER_ALVR)
 	# TODO: Only requires eventmanager header actually
 	add_subdirectory("${CMAKE_SOURCE_DIR}/../alvr_render" "alvr_render2")
+	# alvr_binding.h is an ABI-facing companion header that intentionally uses
+	# anonymous structs. Keep strict warnings elsewhere, but do not emit
+	# -Wpedantic noise for the ALVR integration targets that consume it.
+	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+		target_compile_options(AlvrRender PRIVATE -Wno-pedantic)
+	endif()
 	get_property(alvr_inc_dirs TARGET AlvrRender PROPERTY INCLUDE_DIRECTORIES)
 
 	add_library(
@@ -19,6 +25,9 @@ if(XRT_BUILD_DRIVER_ALVR)
 		)
 	target_link_libraries(drv_alvr PRIVATE xrt-interfaces aux_util aux_os AlvrRender)
 	target_include_directories(drv_alvr PRIVATE ${alvr_inc_dirs})
+	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+		target_compile_options(drv_alvr PRIVATE -Wno-pedantic)
+	endif()
 	list(APPEND ENABLED_DRIVERS alvr)
 endif()
 
