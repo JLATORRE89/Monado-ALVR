@@ -2,7 +2,7 @@
 
 ## OVERNIGHT RESULT (2026-09-26)
 
-**Status (latest, 22:10):** Encoder output is now the real checkerboard (red left / blue right, verified by decoding on the PC) — see section 7. Previously solid green (section 6). Earlier: first decoded video frame reached the Quest renderer
+**Status (latest):** END-TO-END VIDEO CONFIRMED — operator sees red (left) / blue (right) in the Quest (2026-09-26 ~22:12). Encoder output verified by PC decode — see section 7. Previously solid green (section 6). Earlier: first decoded video frame reached the Quest renderer
 (`STREAM_RENDER first_decoded_frame`, Quest 20:57:20.925 = PC 21:57:20). Whether the
 checkerboard is visible has not been confirmed by a person.
 
@@ -93,7 +93,7 @@ requested=true` (3/3 plus live-client requests).
 - [x] Explain why only the first video packet reaches `VIDEO_PACKET_RECEIVED` (PC USB Wi-Fi egress saturation).
 - [x] Decoder input/output: `DECODER_SUBMIT accepted=true`, `MEDIACODEC_OUTPUT`, `STREAM_RENDER first_decoded_frame` (at 10 Mbit/s).
 - [ ] Reliable PC->Quest network path (Ethernet/5 GHz) — human decision.
-- [ ] Displayed checkerboard confirmed by a person in the headset.
+- [x] Displayed checkerboard confirmed by a person in the headset (red/blue, 2026-09-26 ~22:12).
 - [ ] If teardown occurs, capture `SHUTDOWN_TRIGGER client_streaming=... lifecycle=...`.
       Observed twice: `client_streaming=false lifecycle=Resumed` exactly when the Quest's
       OpenXR session went VISIBLE -> STOPPING -> IDLE (activity paused / headset removed).
@@ -215,4 +215,5 @@ requested=true` (3/3 plus live-client requests).
 - Build rc=0, 0 warnings. Runtime: `VAAPI_INPUT mode=map_renderer_output intel=1`; service stable.
 - Dump decoded on PC: frame 0 grey (Monado idle), frames 5..149 left RGB (254,0,0), right
   (0,0,254) — the checkerboard demo's red/blue.
-- Next: operator confirms red/blue in the headset; then USB (ADB-forwarded) streaming.
+- Operator confirmed red/blue in the headset. Next: USB (ADB-forwarded) streaming; then
+  separate production fixes from diagnostics for main.
