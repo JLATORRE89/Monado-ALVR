@@ -297,8 +297,12 @@ def status() -> dict:
             st["runtime"]["api"] = "ready"
         except Exception:
             st["runtime"]["api"] = "down"
-        app = subprocess.run(["pgrep", "-x", "intel_xr_checke"], capture_output=True, text=True).stdout.strip()
-        st["runtime"]["app"] = "running" if app else "stopped"
+        loft = subprocess.run(["pgrep", "-x", "intel_xr_loft"], capture_output=True, text=True).stdout.strip()
+        checker = subprocess.run(["pgrep", "-x", "intel_xr_checke"], capture_output=True, text=True).stdout.strip()
+        st["runtime"]["app"] = "loft" if loft else "checkerboard" if checker else "stopped"
+        st["runtime"]["loft_built"] = (runtime_root() / "build/intel-xr-loft/intel_xr_loft").is_file()
+        state = LOFT_DIR / "state"
+        st["runtime"]["loft_mode"] = state.read_text().strip() if loft and state.is_file() else None
     return st
 
 
@@ -344,6 +348,24 @@ def run_runtime(script: str, *args: str, background: bool = False, log: str | No
     if res.returncode != 0:
         raise RuntimeError(" ".join(lines[-2:]) or f"{script} failed")
     return " ".join(lines[-2:])
+
+
+# ---------------------------------------------------------------- Loft (github.com/JLATORRE89/loft)
+LOFT_DIR = Path(os.environ.get("XR_LOFT_CONTROL_DIR") or
+                Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "xr-loft")
+LOFT_COMMANDS = {"lobby", "checkerboard", "colors", "motion", "pictures", "next", "prev", "exit"}
+
+
+def loft_command(cmd: str) -> dict:
+    if cmd not in LOFT_COMMANDS:
+        raise ValueError(f"unknown Loft command {cmd!r}")
+    if not subprocess.run(["pgrep", "-x", "intel_xr_loft"], capture_output=True).stdout:
+        raise RuntimeError("the Loft is not running (start it first)")
+    LOFT_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = LOFT_DIR / "command.tmp"
+    tmp.write_text(cmd + "\n")
+    os.replace(tmp, LOFT_DIR / "command")
+    return {"message": f"Loft: {cmd}"}
 
 
 # ---------------------------------------------------------------- approved devices
@@ -431,7 +453,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(headset_action(unquote(m.group(1)), m.group(2)))
             m = re.match(r"^/api/app/(start|stop|stop-all)$", path)
             if m:
-                return self.json({"message": run_runtime("xr-app.sh", m.group(1))})
+                args = [m.group(1)]
+                if m.group(1) == "start":
+                    app = parse_qs(urlparse(self.path).query).get("app", ["checkerboard"])[0]
+                    if app not in ("checkerboard", "loft"):
+                        raise ValueError("app must be checkerboard or loft")
+                    args.append(app)
+                return self.json({"message": run_runtime("xr-app.sh", *args)})
+            m = re.match(r"^/api/loft/([a-z]+)$", path)
+            if m:
+                return self.json(loft_command(m.group(1)))
             if path == "/api/service/restart":
                 run_runtime("monado-service.sh", "restart", background=True)
                 return self.json({"message": "Runtime restart requested"}, 202)

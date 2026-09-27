@@ -362,6 +362,15 @@ alvr_hmd_create(void)
 
 		hmd->viewPoses[0] = xrt_pose_from_alvr_pose(cfg.left.pose);
 		hmd->viewPoses[1] = xrt_pose_from_alvr_pose(cfg.right.pose);
+		for (int e = 0; e < 2; e++) {
+			const auto &v = e == 0 ? cfg.left : cfg.right;
+			HMD_INFO(hmd,
+			         "[INTEL-XR-VIEWS] ALVR_VIEW eye=%d pos=(%.4f,%.4f,%.4f) rot=(%.4f,%.4f,%.4f,%.4f) "
+			         "fov(l,r,u,d)=(%.4f,%.4f,%.4f,%.4f)",
+			         e, v.pose.position[0], v.pose.position[1], v.pose.position[2], v.pose.orientation.x,
+			         v.pose.orientation.y, v.pose.orientation.z, v.pose.orientation.w, v.fov.left, v.fov.right,
+			         v.fov.up, v.fov.down);
+		}
 
 		// TODO: If monado internally access it then it's UB (shouldn't really matter tho)
 		auto &fovs = hmd->base.hmd->distortion.fov;

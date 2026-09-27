@@ -76,7 +76,13 @@ async function loadStatus() {
     runtimeInstalled = s.runtime.installed;
     const pills = [pill("ADB", s.adb ? "ok" : "missing")];
     if (runtimeInstalled) {
-      pills.push(pill("Runtime", s.runtime.service), pill("ALVR API", s.runtime.api), pill("Test app", s.runtime.app));
+      const app = s.runtime.app === "stopped" ? "stopped" : s.runtime.app;
+      pills.push(pill("Runtime", s.runtime.service), pill("ALVR API", s.runtime.api),
+                 el("span", { class: `pill ${app === "stopped" ? "" : "ok"}` }, `App: ${app}${s.runtime.loft_mode ? " · " + s.runtime.loft_mode : ""}`));
+      $("#loftCard").hidden = s.runtime.app !== "loft";
+      $("#loftMode").textContent = s.runtime.loft_mode ? `Mode: ${s.runtime.loft_mode}` : "";
+      $("#startLoft").disabled = !s.runtime.loft_built;
+      $("#startLoft").title = s.runtime.loft_built ? "" : "Build the Loft first (github.com/JLATORRE89/loft)";
     } else {
       pills.push(el("span", { class: "pill" }, "Runtime: not configured"));
     }
@@ -188,8 +194,14 @@ $("#captureFilter").addEventListener("change", loadCaptures);
 
 // ---------------------------------------------------------------- streaming
 for (const b of $$("[data-app]")) b.addEventListener("click", () => run(b, async () => {
-  const r = await api(`/api/app/${b.dataset.app}`, { method: "POST" });
-  loadStatus();
+  const q = b.dataset.appname ? `?app=${encodeURIComponent(b.dataset.appname)}` : "";
+  const r = await api(`/api/app/${b.dataset.app}${q}`, { method: "POST" });
+  await loadStatus();
+  return r;
+}));
+for (const b of $$("[data-loft]")) b.addEventListener("click", () => run(b, async () => {
+  const r = await api(`/api/loft/${b.dataset.loft}`, { method: "POST" });
+  setTimeout(loadStatus, 700);
   return r;
 }));
 async function loadClients() {

@@ -47,12 +47,26 @@
     <div class="section-head"><h1>Streaming</h1><p class="muted">Intel XR runtime (Monado + ALVR). ALVR streams to one headset at a time.</p></div>
     <div id="runtime-missing" class="card notice" hidden>The Intel XR runtime is not configured for this panel. Headset features still work. Set <code>runtime_root</code> in <code>~/.config/xr-control-panel/config.json</code> to enable streaming controls.</div>
     <div class="card" data-runtime>
-      <h2>Test app</h2>
-      <p class="muted">The checkerboard OpenXR app streamed to the connected headset.</p>
+      <h2>XR app</h2>
+      <p class="muted">The OpenXR app streamed to the connected headset. The Loft is a lobby of mini apps; the checkerboard is the plain stream test.</p>
       <div class="actions">
-        <button class="btn primary" data-app="start">Start test app</button>
-        <button class="btn" data-app="stop">Exit test app</button>
-        <button class="btn danger" data-app="stop-all" data-confirm="Exit the test app and stop the runtime? The headset will lose its stream.">Exit app &amp; stop runtime</button>
+        <button class="btn primary" data-app="start" data-appname="loft" id="startLoft">Start Loft</button>
+        <button class="btn" data-app="start" data-appname="checkerboard">Start checkerboard</button>
+        <button class="btn" data-app="stop">Exit app</button>
+        <button class="btn danger" data-app="stop-all" data-confirm="Exit the app and stop the runtime? The headset will lose its stream.">Exit app &amp; stop runtime</button>
+      </div>
+    </div>
+    <div class="card" data-runtime id="loftCard" hidden>
+      <div class="row"><h2>Loft</h2><span id="loftMode" class="badge accent"></span></div>
+      <p class="muted">Switch the Loft's mini app for the wearer (they can also pick by looking at a tile for 1.5 s).</p>
+      <div class="actions">
+        <button class="btn" data-loft="lobby">Lobby</button>
+        <button class="btn" data-loft="checkerboard">Checkerboard</button>
+        <button class="btn" data-loft="colors">Color test</button>
+        <button class="btn" data-loft="motion">Motion test</button>
+        <button class="btn" data-loft="pictures">Pictures</button>
+        <button class="btn" data-loft="prev">&lsaquo; Prev picture</button>
+        <button class="btn" data-loft="next">Next picture &rsaquo;</button>
       </div>
     </div>
     <div class="card" data-runtime>

@@ -118,6 +118,23 @@ patch_once(
     "u64 const frameTimestampNs",
 )
 
+# Frames outpace tracking samples (Monado ~90 Hz vs Quest tracking 72 Hz), so several frames
+# got the same timestamp. The client looks up each frame's view params by timestamp and takes
+# the first match, i.e. a stale head/eye pose for repeated timestamps (double vision/judder
+# during head motion). Keep timestamps unique and increasing.
+patch_once(
+    encoder_cpp,
+    """    u64 const frameTimestampNs = trackingTimestampNs != 0 ? trackingTimestampNs : framePacket.pts;""",
+    """    static u64 lastFrameTimestampNs = 0;
+    u64 frameTimestampNs = trackingTimestampNs != 0 ? trackingTimestampNs : framePacket.pts;
+    // The client matches view params by timestamp: never reuse one (frames outpace tracking).
+    if (frameTimestampNs <= lastFrameTimestampNs) {
+        frameTimestampNs = lastFrameTimestampNs + 1;
+    }
+    lastFrameTimestampNs = frameTimestampNs;""",
+    "lastFrameTimestampNs",
+)
+
 print()
 print("alvr_render frame timestamps are applied.")
 print("Expected marker: FRAME_TIMESTAMP source=tracking ts_ns=...")
