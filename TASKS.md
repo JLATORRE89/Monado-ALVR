@@ -2,7 +2,7 @@
 
 ## OVERNIGHT RESULT (2026-09-26)
 
-**Status:** First decoded video frame reached the Quest renderer
+**Status (latest, 22:05):** Video now displays on the Quest, but the encoder output is solid green (encoder input surface empty) — see section 6. Earlier: first decoded video frame reached the Quest renderer
 (`STREAM_RENDER first_decoded_frame`, Quest 20:57:20.925 = PC 21:57:20). Whether the
 checkerboard is visible has not been confirmed by a person.
 
@@ -15,7 +15,7 @@ The adapter saturates at ~32 Mbit/s TX, and at a 30 Mbit/s video target the stre
 Quest `STREAM_RECV_STATS shards` rising with `try_again=0`, `DECODER_SUBMIT accepted=true`,
 `MEDIACODEC_OUTPUT`, first decoded frame. Delivery is still lossy (`loss=true`, ~20 s gaps).
 
-**Exact remaining blocker:** lossy/insufficient PC->Quest network path (2.4 GHz USB Wi-Fi).
+**Exact remaining blockers:** (1) encoder input surface is all zeros -> solid green (PC-side, alvr_render); (2) lossy/insufficient PC->Quest network path (2.4 GHz USB Wi-Fi).
 **Needs a human decision (host networking, not changed tonight):** put the PC on the Quest's
 LAN via Ethernet or a 5 GHz adapter/AP, or accept a lower bitrate.
 
@@ -184,3 +184,22 @@ requested=true` (3/3 plus live-client requests).
   `target/debug/apk/alvr_client_openxr.apk`); no uninstall, app data kept.
 - 10 Mbit/s test (session backed up first): Send-Q 131 KB; client `STREAM_RECV_STATS
   shards=4484..6433 try_again=0`; first decoded frame rendered; frequent `loss=true`.
+
+### 6. Picture content (live, operator in headset, 21:58-22:05)
+- Operator saw a grey box: only 2 IDRs arrived, both before the decoder existed; all 17
+  accepted frames were P-frames (10 with loss). Enabled existing ALVR
+  `connection.avoid_video_glitching=true` (session backup as above) -> decoder gets IDRs.
+- Operator then saw solid **green**. Opt-in dump (`scripts/apply-alvr-render-h264-dump.py`,
+  trigger file `logs/INTEL_XR_DUMP_H264`) of 150 encoded frames decoded on the PC:
+  2144x2336 yuv420p, both eyes RGB ~(0,135,0) = Y=U=V=0 in every frame.
+- RESULT: transport, Quest decode and display work end to end; the Quest shows exactly what
+  is encoded. **New boundary: encoder input surface is all zeros** — checkerboard content
+  (red left / blue right) does not reach the VAAPI frame (alvr_render Renderer output ->
+  DRM import `VkFrame`/`mapped_frame` -> `scale_vaapi`/filter graph -> encoder).
+- Session config now: ConstantMbps 10, avoid_video_glitching true (both differ from backup).
+
+## Next (operator request)
+- After the picture is correct: USB streaming via ALVR's wired mode (ADB port forwarding,
+  `alvr_adb::WiredConnection` in server_core). It avoids the 2.4 GHz USB Wi-Fi bottleneck
+  entirely. Requires `connection.stream_protocol = Tcp` and the wired client setting; verify
+  with `adb -s 1WMHHA42R81461 forward --list`.
