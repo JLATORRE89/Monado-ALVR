@@ -215,7 +215,7 @@ requested=true` (3/3 plus live-client requests).
 - Build rc=0, 0 warnings. Runtime: `VAAPI_INPUT mode=map_renderer_output intel=1`; service stable.
 - Dump decoded on PC: frame 0 grey (Monado idle), frames 5..149 left RGB (254,0,0), right
   (0,0,254) — the checkerboard demo's red/blue.
-- Operator confirmed red/blue in the headset. USB prepared (section 8, awaiting headset); then
+- Operator confirmed red/blue in the headset. USB CONFIRMED lossless at 72 FPS (section 9); then
   separate production fixes from diagnostics for main.
 
 ### 8. USB (wired) streaming — prepared, awaiting headset (22:10-22:15)
@@ -261,3 +261,13 @@ Evidence so far: PC egress is a 2.4 GHz USB Wi-Fi adapter (~32 Mbit/s); loss app
    (`aggressive_keyframe_resend`); consider intra-refresh instead of full IDRs to avoid
    ~13-shard keyframe bursts.
 4. Client buffering: `video.max_buffering_frames` to absorb jitter at a latency cost.
+
+### 9. USB streaming confirmed (2026-09-27 ~09:12)
+- Operator sees red/blue over USB.
+- PC: `monado-service` TCP 127.0.0.1 -> 9943/9944 via `adb` forwards; no UDP 9944 socket;
+  `VIDEO_SEND_STATS sent=3000 errors=0`.
+- Quest (logcat saved `logs/2026-09-27_usb-stream-logcat.txt`): 1,631
+  `VIDEO_PACKET_RECEIVED ... loss=false`, 0 with loss, 1,632 `MEDIACODEC_OUTPUT`, no
+  drop/IDR-wait warnings, VrApi FPS=72/72.
+- Next: raise bitrate toward 30 Mbit/s over USB (stop service, edit
+  `video.bitrate.mode.ConstantMbps`, start); Wi-Fi anti-stutter follow-up above.
