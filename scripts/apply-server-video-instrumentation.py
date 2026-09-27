@@ -130,6 +130,24 @@ def cleanup_companion_warnings() -> None:
     if binding.is_file():
         text = binding.read_text()
         marker = "INTEL_XR_PEDANTIC_GUARD"
+        # Remove any stale push/pop guard left by older helper revisions before
+        # installing the system-header form. A trailing diagnostic pop can undo
+        # the intended suppression while this header is parsed.
+        old_prefix = """/* INTEL_XR_PEDANTIC_GUARD: ABI-facing generated binding. */
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
+"""
+        old_suffix = """
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+"""
+        if old_prefix in text:
+            text = text.replace(old_prefix, "", 1)
+        if old_suffix in text:
+            text = text.replace(old_suffix, "", 1)
         # A push/pop inside the header does not suppress diagnostics emitted while
         # parsing anonymous structs reliably across all inclusion contexts. Treat
         # this generated ABI header as a GCC system header instead: diagnostics
