@@ -57,6 +57,18 @@ def cleanup_companion_warnings() -> None:
 
     if renderer.is_file():
         text = renderer.read_text()
+        # Current alvr_render uses a named local aggregate in getImages().
+        old_named = """        AlvrVkExport expt {
+            .sem = monadoFinishedSem,
+        };"""
+        new_named = """        AlvrVkExport expt {};
+        expt.sem = monadoFinishedSem;"""
+        if old_named in text:
+            text = text.replace(old_named, new_named, 1)
+            renderer.write_text(text)
+            print(f"[cleanup] {renderer}: zero-initialize named AlvrVkExport")
+            text = renderer.read_text()
+
         # Match the actual getImages() aggregate regardless of other initialized fields.
         pattern = re.compile(r"return\s+AlvrVkExport\s*\{(?P<body>.*?)\};", re.DOTALL)
         match = pattern.search(text)
