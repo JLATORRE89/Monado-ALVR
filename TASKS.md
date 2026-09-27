@@ -451,3 +451,32 @@ Goal (operator): streaming must work on 2.4 GHz networks.
   mini apps: Checkerboard, Color/gradient test, Latency/motion bars, Picture viewer (later WebM).
   "Back" tile below view. Panel: mini-app picker on Streaming tab via a local control file;
   `xr-app.sh start loft|checkerboard`.
+
+## 2026-09-27 afternoon: Loft, double vision, sharpness
+- Loft moved to its own repo github.com/JLATORRE89/loft (main); `xr-app.sh start loft`; panel
+  Loft card switches mini apps (lobby/checkerboard/colors/motion/pictures/prev/next).
+- **Double vision fixed:** ALVR session had `video.foveated_encoding.enabled=true`, so the Quest
+  un-warped frames that alvr_render never foveated (its settings loader cannot read
+  openvr_config). Disabled in the session (backup `...-pre-no-foveation.json`). Operator confirmed.
+  Proper fix later: implement foveation in alvr_render from the session values (saves bandwidth).
+- Frame timestamps made unique (client matches view params by timestamp, first match).
+- **Resets:** USB streams disconnected every 5-15 s because the Wi-Fi anti-bufferbloat limits
+  (3 queued frames, 128 KB) also applied to USB -> drops, IDR waits, bitrate cut to ~3-5 Mbit/s.
+  Fixed (ALVR 830a55bb): wired uses >=16 queued frames and the maximum send buffer.
+- **Sharpness:** each eye got half its width (per-eye stream size used as the two-eye canvas).
+  Fixed (00a835f88); per-eye width 1832 (H.264/Intel max 4096 wide), canvas 3664x1996,
+  session `openvr_config.eye_resolution_*` + `transcoding_view_resolution` set (backup
+  `...-pre-sharpness.json`); Adaptive max 80 Mbit/s.
+- Open: SIGBUS when the runtime is stopped while streaming (fault handler prints no backtrace);
+  PC-side encoder dumps of the Loft decode as flat colors although the headset shows content
+  (capture-path issue, unresolved); a 4288-wide canvas crashes encoder init (SEGV) instead of
+  failing cleanly.
+- alvr_render changes also committed to local branch `intel-xr-companion` (upstream is not ours).
+
+## Next (operator): smooth surfaces, view out of the windows, joystick movement
+Operator chose to extend the C Loft (not Godot/Unity). Plan:
+1. HEVC 10-bit (smooth gradients, better quality per bit; lifts the 4096 px H.264 limit).
+2. C Loft 3D room: Vulkan mesh pipeline with MSAA, CC0 PBR textures, window openings onto a
+   CC0 outdoor (trees) skybox + tree billboards for parallax; walkable 6DoF.
+3. Controllers in the Monado ALVR driver (poses, buttons, thumbsticks, haptics) -> joystick
+   locomotion and snap turn in the Loft.
