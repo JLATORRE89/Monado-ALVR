@@ -46,77 +46,92 @@ root = project_root()
 
 
 def cleanup_companion_warnings() -> None:
-    """Fix warning-producing companion code without changing ABI-sensitive bindings."""
+    """Clean actionable companion warnings and isolate ABI-only pedantic warnings."""
+    import re
+
     renderer = root / "src" / "alvr_render" / "src" / "Renderer.hpp"
+    renderer_cpp = root / "src" / "alvr_render" / "src" / "Renderer.cpp"
+    encoder = root / "src" / "alvr_render" / "src" / "Encoder.cpp"
     utils = root / "src" / "alvr_render" / "src" / "utils.hpp"
+    binding = root / "src" / "alvr_render" / "src" / "alvr_binding.h"
 
     if renderer.is_file():
         text = renderer.read_text()
-        old = """        return AlvrVkExport {
-            .sem = timelineSem,
-        };"""
-        new = """        AlvrVkExport out {};
-        out.sem = timelineSem;
-        return out;"""
-        changed = False
-        if old in text:
-            text = text.replace(old, new, 1)
-            changed = True
-        # Some companion revisions use a differently indented aggregate return.
-        import re
-        aggregate = re.compile(
-            r"return\s+AlvrVkExport\s*\{\s*\.sem\s*=\s*timelineSem\s*,?\s*\};",
-            re.MULTILINE,
-        )
-        if aggregate.search(text):
-            text = aggregate.sub("AlvrVkExport out {};\n        out.sem = timelineSem;\n        return out;", text, count=1)
-            changed = True
-        if changed:
-            renderer.write_text(text)
-            print(f"[cleanup] {renderer}: initialize AlvrVkExport")
+        # Match the actual getImages() aggregate regardless of other initialized fields.
+        pattern = re.compile(r"return\s+AlvrVkExport\s*\{(?P<body>.*?)\};", re.DOTALL)
+        match = pattern.search(text)
+        if match and "AlvrVkExport out {};" not in text:
+            body = match.group("body")
+            assignments = []
+            for field, expr in re.findall(r"\.([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^,]+),?", body):
+                assignments.append(f"        out.{field} = {expr.strip()};")
+            if assignments:
+                replacement = "AlvrVkExport out {};\n" + "\n".join(assignments) + "\n        return out;"
+                text = text[:match.start()] + replacement + text[match.end():]
+                renderer.write_text(text)
+                print(f"[cleanup] {renderer}: zero-initialize AlvrVkExport before field assignment")
         elif "AlvrVkExport out {};" in text:
             print(f"[already cleaned] {renderer}: AlvrVkExport")
-        else:
-            print(f"[warning cleanup skipped] {renderer}: AlvrVkExport pattern not found")
 
-    encoder = root / "src" / "alvr_render" / "src" / "Encoder.cpp"
     if encoder.is_file():
         text = encoder.read_text()
+        changed = False
         old = "    auto& avHwCtx = *new alvr::HWContext(vkCtx);"
         if old in text:
             text = text.replace(old, "    [[maybe_unused]] auto& avHwCtx = *new alvr::HWContext(vkCtx);", 1)
+            changed = True
+        old_pipe = """        pipeCIs.push_back({
+            .shaderData = loadShaderFile("quad"),
+        });"""
+        new_pipe = """        render::PipelineCreateInfo pipe {};
+        pipe.shaderData = loadShaderFile("quad");
+        pipeCIs.push_back(std::move(pipe));"""
+        if old_pipe in text:
+            text = text.replace(old_pipe, new_pipe, 1)
+            changed = True
+        if changed:
             encoder.write_text(text)
-            print(f"[cleanup] {encoder}: mark retained HWContext reference maybe_unused")
-        elif "[[maybe_unused]] auto& avHwCtx" in text:
-            print(f"[already cleaned] {encoder}: avHwCtx")
+            print(f"[cleanup] {encoder}: initialize pipeline data / retained HW context")
 
-    renderer_cpp = root / "src" / "alvr_render" / "src" / "Renderer.cpp"
     if renderer_cpp.is_file():
         text = renderer_cpp.read_text()
         old = "    for (int i = 0; i < ImageCount; ++i) {"
         if old in text:
-            text = text.replace(old, "    for (u32 i = 0; i < ImageCount; ++i) {", 1)
-            renderer_cpp.write_text(text)
+            renderer_cpp.write_text(text.replace(old, "    for (u32 i = 0; i < ImageCount; ++i) {", 1))
             print(f"[cleanup] {renderer_cpp}: fix ImageCount signedness")
-        elif "for (u32 i = 0; i < ImageCount; ++i)" in text:
-            print(f"[already cleaned] {renderer_cpp}: ImageCount signedness")
 
     if utils.is_file():
         text = utils.read_text()
-        # Optional::get() currently falls off the end after assert(false), which
-        # triggers -Wreturn-type and is undefined behavior in release builds.
         old = """        assert(false);
-    }"""
-        new = """        assert(false);
-        std::abort();
     }"""
         if old in text and "std::abort();" not in text:
             if "#include <cstdlib>" not in text:
                 text = text.replace("#include ", "#include <cstdlib>\n#include ", 1)
-            utils.write_text(text.replace(old, new, 1))
+            utils.write_text(text.replace(old, """        assert(false);
+        std::abort();
+    }""", 1))
             print(f"[cleanup] {utils}: make Optional::get() non-returning")
-        elif "std::abort();" in text:
-            print(f"[already cleaned] {utils}: Optional::get()")
+
+    # alvr_binding.h is generated/ABI-facing and intentionally uses anonymous
+    # structs. Do not rewrite its layout. Suppress only GCC's pedantic warning
+    # locally around this external binding header.
+    if binding.is_file():
+        text = binding.read_text()
+        marker = "INTEL_XR_PEDANTIC_GUARD"
+        if marker not in text:
+            prefix = """/* INTEL_XR_PEDANTIC_GUARD: ABI-facing generated binding. */
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#endif
+"""
+            suffix = """
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+"""
+            binding.write_text(prefix + text + suffix)
+            print(f"[cleanup] {binding}: scope -Wpedantic suppression to ABI binding")
 
 cleanup_companion_warnings()
 alvr_render = root / "src" / "alvr_render" / "src" / "Encoder.cpp"
