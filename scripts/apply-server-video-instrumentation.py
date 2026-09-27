@@ -130,20 +130,33 @@ def cleanup_companion_warnings() -> None:
     if binding.is_file():
         text = binding.read_text()
         marker = "INTEL_XR_PEDANTIC_GUARD"
+        # A push/pop inside the header does not suppress diagnostics emitted while
+        # parsing anonymous structs reliably across all inclusion contexts. Treat
+        # this generated ABI header as a GCC system header instead: diagnostics
+        # originating in it are suppressed without changing its layout or ABI.
+        guard = """/* INTEL_XR_PEDANTIC_GUARD: generated ABI binding; do not rewrite layout. */
+#if defined(__GNUC__)
+#pragma GCC system_header
+#endif
+"""
         if marker not in text:
-            prefix = """/* INTEL_XR_PEDANTIC_GUARD: ABI-facing generated binding. */
+            binding.write_text(guard + text)
+            print(f"[cleanup] {binding}: mark generated ABI binding as system header")
+        elif "#pragma GCC system_header" not in text:
+            # Replace the older push/pop guard installed by previous helper versions.
+            text = text.replace("""/* INTEL_XR_PEDANTIC_GUARD: ABI-facing generated binding. */
 #if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 #endif
-"""
-            suffix = """
+""", guard, 1)
+            text = text.replace("""
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
-"""
-            binding.write_text(prefix + text + suffix)
-            print(f"[cleanup] {binding}: scope -Wpedantic suppression to ABI binding")
+""", "", 1)
+            binding.write_text(text)
+            print(f"[cleanup] {binding}: upgrade pedantic guard to system-header scope")
 
 cleanup_companion_warnings()
 alvr_render = root / "src" / "alvr_render" / "src" / "Encoder.cpp"
