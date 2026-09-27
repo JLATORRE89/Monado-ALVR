@@ -24,6 +24,12 @@ add_library(
 	)
 target_link_libraries(target_lists PRIVATE xrt-interfaces aux_util aux_util_sink drv_includes x264 AlvrRender vk)
 
+if(XRT_BUILD_DRIVER_ALVR AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+	# target_alvr_comp.cpp consumes the ABI-facing alvr_binding.h anonymous
+	# structs. Suppress only this pedantic diagnostic on this integration source.
+	set_source_files_properties(target_alvr_comp.cpp PROPERTIES COMPILE_OPTIONS "-Wno-pedantic")
+endif()
+
 get_property(alvr_inc_dirs TARGET AlvrRender PROPERTY INCLUDE_DIRECTORIES)
 target_include_directories(target_lists PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
