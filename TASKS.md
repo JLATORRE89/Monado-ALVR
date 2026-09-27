@@ -2,7 +2,7 @@
 
 ## OVERNIGHT RESULT (2026-09-26)
 
-**Status (latest, 22:05):** Video now displays on the Quest, but the encoder output is solid green (encoder input surface empty) — see section 6. Earlier: first decoded video frame reached the Quest renderer
+**Status (latest, 22:10):** Encoder output is now the real checkerboard (red left / blue right, verified by decoding on the PC) — see section 7. Previously solid green (section 6). Earlier: first decoded video frame reached the Quest renderer
 (`STREAM_RENDER first_decoded_frame`, Quest 20:57:20.925 = PC 21:57:20). Whether the
 checkerboard is visible has not been confirmed by a person.
 
@@ -15,7 +15,7 @@ The adapter saturates at ~32 Mbit/s TX, and at a 30 Mbit/s video target the stre
 Quest `STREAM_RECV_STATS shards` rising with `try_again=0`, `DECODER_SUBMIT accepted=true`,
 `MEDIACODEC_OUTPUT`, first decoded frame. Delivery is still lossy (`loss=true`, ~20 s gaps).
 
-**Exact remaining blockers:** (1) encoder input surface is all zeros -> solid green (PC-side, alvr_render); (2) lossy/insufficient PC->Quest network path (2.4 GHz USB Wi-Fi).
+**Exact remaining blockers:** (1) FIXED in section 7 (green); (2) lossy/insufficient PC->Quest network path (2.4 GHz USB Wi-Fi).
 **Needs a human decision (host networking, not changed tonight):** put the PC on the Quest's
 LAN via Ethernet or a 5 GHz adapter/AP, or accept a lower bitrate.
 
@@ -203,3 +203,16 @@ requested=true` (3/3 plus live-client requests).
   `alvr_adb::WiredConnection` in server_core). It avoids the 2.4 GHz USB Wi-Fi bottleneck
   entirely. Requires `connection.stream_protocol = Tcp` and the wired client setting; verify
   with `adb -s 1WMHHA42R81461 forward --list`.
+
+### 7. Green frame fixed (22:10)
+- Cause: on Intel, `EncodePipelineVAAPI` took the "Importing VA surface" branch — a fresh VA
+  surface was encoded while the step that makes the renderer draw into it
+  (`r->ImportOutput(drm)`, "TODO: Fix output import") is commented out -> all-zero NV12 -> green.
+- Change: `scripts/apply-alvr-render-intel-map-output.py` — Intel uses the existing
+  `map_frame()` path (renderer's linear DMA-BUF output, now advertised as
+  `DRM_FORMAT_MOD_LINEAR` instead of `MOD_INVALID`); `av_hwframe_map()` result checked with a
+  logged fallback to the old path; `ALVR_VAAPI_IMPORT_SURFACE` still forces the old path.
+- Build rc=0, 0 warnings. Runtime: `VAAPI_INPUT mode=map_renderer_output intel=1`; service stable.
+- Dump decoded on PC: frame 0 grey (Monado idle), frames 5..149 left RGB (254,0,0), right
+  (0,0,254) — the checkerboard demo's red/blue.
+- Next: operator confirms red/blue in the headset; then USB (ADB-forwarded) streaming.
