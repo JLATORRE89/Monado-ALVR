@@ -8,8 +8,11 @@ Project root: `/ai/intel-xr-prototype`
 
 Repositories:
 - `src/Monado-ALVR` — `JLATORRE89/Monado-ALVR`, branch `xr-cleanup`
-- `src/alvr-monado` — `JLATORRE89/ALVR`, branch `intel-xr-client-diag`
-- `src/alvr_render` — companion renderer/encoder consumed by Monado
+- `src/alvr-monado` — `JLATORRE89/ALVR`, branch `intel-xr-client-diag` (remote `jason`)
+- `src/alvr_render` — companion renderer/encoder consumed by Monado; pinned at `ecb2812`,
+  reconstructed by `scripts/apply-alvr-render-companion.sh` (local snapshot branch
+  `intel-xr-companion`, not pushable)
+- `src/loft` — `JLATORRE89/loft`, branch `main` (demo app; optional)
 
 Artifacts:
 - Monado: `build/monado-alvr`
@@ -18,9 +21,9 @@ Artifacts:
 - Logs: `logs/`
 
 ## Immediate objective
-Make streaming reliable on 2.4 GHz Wi-Fi (operator goal). USB streaming works (lossless,
-30 Mbit/s, 72 FPS). Wi-Fi fixes are deployed but need a clean live re-test; one SIGBUS crash is
-unexplained. Start from `CURRENT STATUS` at the top of `TASKS.md`.
+Consolidation is done (see `CONSOLIDATION RESULT` in `TASKS.md`). Next: Quest controllers
+(`docs/controllers.md`, W14), then the Loft. Preserve the known-good video path; start from the
+top of `TASKS.md`.
 
 ## Proven state
 End-to-end video is confirmed in the headset (red/blue checkerboard) over Wi-Fi at 10 Mbit/s and
@@ -31,6 +34,10 @@ wired (USB) mode picks the device with the client and falls back to Wi-Fi; send-
 cuts bitrate (AIMD); EINTR is retried; IDR requests are de-duplicated. alvr_render changes live
 as idempotent `scripts/apply-*.py` helpers (order in TASKS.md) because alvr_render is a pinned
 detached checkout. Live ALVR session settings differ from defaults; see TASKS.md.
+
+Config layers: repo defaults `config/xr-build.json`; workstation overrides
+`config/xr-build.local.json` (gitignored); ALVR session `~/.config/alvr/session.json`;
+diagnostic env vars on the service. Commit map: `docs/commit-classification.md`.
 
 ## Add-ons
 `addons/xr-control-panel/` is an optional, separately installed web UI (multi-headset management,

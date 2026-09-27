@@ -87,5 +87,16 @@
 - `/api/session/values` changes apply live; connection-level settings (buffers, queue length,
   stream protocol) apply only to new connections.
 
+## Lessons 2026-09-27 (consolidation)
+- A companion helper's `marker` must be text that only exists after its own patch, is not
+  rewritten by a later patch, and does not occur elsewhere in the file. Violations made a fresh
+  reconstruction silently differ from the working tree.
+- Prove companion reproducibility in a temporary `git worktree` from the pinned revision, never
+  in `src/alvr_render`; compare with `diff -r -x .git`. Re-run after any helper change.
+- Use `scripts/rebuild-runtime.sh` for rebuilds; `prepare-companions.sh`/`build-intel-xr.sh`
+  reset repositories.
+- Do not commit workstation choices as repo defaults; put them in `config/xr-build.local.json`.
+- Only warnings from project or companion code count against "clean build"; record upstream ones.
+
 ## Diagnostic hygiene
 Rate-limit noisy probes. Once a boundary is proven, reduce/remove its temporary logging. Record evidence in `TASKS.md`.

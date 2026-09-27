@@ -1,6 +1,122 @@
 # Intel XR Prototype — Task Progress
 
-## CURRENT STATUS (2026-09-27 ~09:55)
+## CONSOLIDATION RESULT (2026-09-27 ~16:10)
+
+Priority changed from "add features quickly" to "consolidate and preserve the known-good XR stack".
+
+**Companion reproducibility: PASS.** A clean reconstruction reproduces the working alvr_render
+source state byte-for-byte.
+- Procedure (non-destructive; the working tree is never touched):
+  ```
+  git -C src/alvr_render worktree add --detach <scratch>/audit/root/src/alvr_render \
+      ecb281249b6900ec6ceb6e0570be5100533c706a
+  INTEL_XR_ROOT=<scratch>/audit/root INTEL_XR_LOG_DIR=/ai/intel-xr-prototype/logs \
+      bash src/Monado-ALVR/scripts/apply-alvr-render-companion.sh     # prints COMPANION OK
+  diff -r -x .git <scratch>/audit/root/src/alvr_render src/alvr_render  # no output
+  ```
+- Result: `diff -r` empty; reconstructed git tree `030ce49411ee2597f1c598893b784bf1438f3d36`
+  == `4814e5f^{tree}` (working tree snapshot on the local `intel-xr-companion` branch).
+- The orchestrator runs every helper twice; the second pass must report only `[already patched]`.
+- The audit found and fixed three reconstruction bugs (8bee6bf01): frame-timestamps marker
+  rewritten by its own later patch (re-run aborted), idr-dedup marker colliding with the dump
+  helper (fresh reconstruction silently kept `InsertIDR`), encoder-bitrate codec marker absent
+  from its inserted text. Before 8bee6bf01 a fresh checkout did NOT reproduce the known-good
+  state.
+
+**Clean build: PASS** (logs `logs/2026-09-27_15-56-58_clean-verify/`).
+| Component | Result |
+|---|---|
+| Monado, fresh configure into `build/monado-alvr-verify` | rc=0; 0 warnings from project/companion code. The only 2 warnings are GCC `-Wmaybe-uninitialized` in system Eigen headers via upstream `src/xrt/auxiliary/tracking/t_imu.cpp` (unchanged from `main`). |
+| server_core, fresh `CARGO_TARGET_DIR=build/cargo-verify` | rc=0; 1 warning: upstream dead code `TrackingManager::server_to_client_pose` (identical on `origin/monado`; not ours). |
+| Quest client `cargo xtask build-client` | rc=0, 0 warnings; APK sha256 `f9258276…0ee1dc6`. |
+| Markers, fresh `libopenxr_monado.so` | `IDR_REQUEST_COALESCED`, `[INTEL-XR-FAULT]`, `ENCODER_INIT`, `INTEL_XR_NO_REOPEN`, `INTEL-XR-VIEWS` present |
+| Markers, fresh server core / APK | `VIDEO_SEND_STATS`; `STREAM_RECV_STATS`, `APP_EXIT`, `finish_activity` present |
+Deployed server core check: `scripts/rebuild-runtime.sh` fails unless target and deployed
+sha256 match. No stale artifact is relied on: the verify builds are independent directories.
+
+**Commits / branches.** Monado-ALVR `xr-cleanup`: b7ab80911 (opt-in session codec),
+8bee6bf01 (reconstruction fixes), consolidation commit (this section, config hygiene,
+`docs/commit-classification.md`) — pushed. ALVR `intel-xr-client-diag` at 830a55bb — pushed,
+no new commits. alvr_render `intel-xr-companion` 4814e5f — local only (upstream not ours); the
+Monado-ALVR helpers are the source of truth. loft `main` dc982ef — pushed. Classification
+of all commits, dependencies and what must not go to main: `docs/commit-classification.md`.
+No squash/rebase/merge/force-push.
+
+**SIGBUS review (encoder re-open): no clear bug; fault handler kept.**
+- `SetParams`, `MaybeReopenEncoder`, `PushFrame` and `GetEncoded` all run on the encoder
+  thread (`Encoder.cpp` loop) → no race on `pending_params` / `encoder_ctx`.
+- Re-open builds the new context first, shares `hw_frames_ctx` by reference, frees the old one
+  only after `avcodec_open2` succeeds; on failure the old context stays. `mapped_frame` and the
+  filter graph belong to the pipeline, not the codec context, and outlive the swap.
+- `async_depth=1`: at most one frame is inside the old context; freeing it drops that frame
+  (logged as `ENCODER_NO_OUTPUT`) and the new context starts with an IDR. Packet data is consumed
+  synchronously before the next `GetEncoded` frees it.
+- Residual hazards, documented not fixed: (1) `~EncodePipelineVAAPI` deliberately leaks the
+  filter graph / mapped frame (upstream comment: freeing causes a GPU reset), while the base
+  destructor frees `encoder_ctx`; (2) at shutdown the Vulkan images backing the DMA-BUF-mapped
+  `mapped_frame` can be destroyed while the encoder thread is still in `PushFrame` — the most
+  plausible cause of the 15:45 shutdown SIGBUS. The 09:33 mid-stream SIGBUS is unreproduced
+  (18 re-opens). `INTEL_XR_NO_REOPEN=1` disables re-open for A/B if it recurs.
+
+**Config hygiene.**
+| Layer | Where | Notes |
+|---|---|---|
+| Repo defaults | `config/xr-build.json` | `android.usb_stay_awake` reverted to `false`. Still contains workstation values (`quest_ip`, `legacy_protocol_test`) listed in the classification as not-for-main. |
+| Workstation config | `config/xr-build.local.json` (gitignored) | `{"android":{"usb_stay_awake":true}}`, read by `scripts/quest-usb-awake.sh` after the repo file. Note: the control panel's setting editor still writes the repo file. |
+| ALVR session state | `~/.config/alvr/session.json` | see CURRENT STATUS; backups in `backups/alvr-session-*.json` |
+| Diagnostic config | env vars on the service: `INTEL_XR_NO_REOPEN`, `INTEL_XR_H264_DUMP*`, `INTEL_XR_LOG_DIR`, `ALVR_LEGACY_PROTOCOL_TEST` | off unless set |
+| Add-on config | `~/.config/xr-control-panel/config.json` | outside the runtime |
+
+**Remaining diagnostics** (to gate or remove before main): `INTEL-XR-*` stderr markers from
+`apply-server-video-instrumentation.py`, per-frame `ENCODER_DYNAMIC_PARAMS` log, h264 dump
+helper, `[INTEL-XR-VIEWS]` in the Monado driver/target, `INTEL-XR-VIDEO`/`STREAM_RECV_STATS` in
+the client, `VIDEO_SEND_STATS` in the server, fault handler (keep until SIGBUS understood).
+
+**Next operator command:** `bash scripts/monado-service.sh restart`, start the client on USB,
+`bash scripts/xr-app.sh start loft`, confirm image + look-around, then unplug for Wi-Fi.
+**Next engineering task:** controllers, W14 step 1 (`docs/controllers.md`).
+
+## CURRENT STATUS (2026-09-27 ~16:10)
+
+**Known-good baseline.** Monado compositor → alvr_render (Vulkan) → Intel VAAPI H.264 →
+ALVR server core → USB (ADB TCP) or Wi-Fi (UDP) → Quest MediaCodec. Headset: image, look-around,
+no double vision, no interface resets; per-eye 1824×1984 on a two-eye canvas.
+
+**Branches / commits.** Monado-ALVR `xr-cleanup` (see git log; classification in
+`docs/commit-classification.md`), ALVR `intel-xr-client-diag` 830a55bb, loft `main` dc982ef.
+
+**Companion.** alvr_render pinned `ecb281249b6900ec6ceb6e0570be5100533c706a`; reconstruct with
+`scripts/apply-alvr-render-companion.sh`, order: base-compat, server-video-instrumentation,
+request-idr, encoder-bitrate, intel-map-output, h264-dump (diagnostic, opt-in at runtime),
+dynamic-bitrate, frame-timestamps, idr-dedup, stream-extent. Known-good tree = local
+`intel-xr-companion` 4814e5f. Rebuild with `scripts/rebuild-runtime.sh` (never resets repos);
+do NOT run `prepare-companions.sh` / `build-intel-xr.sh` on a working tree (they reset).
+
+**Known-good ALVR session** (`~/.config/alvr/session.json`): codec H264, 8-bit; Adaptive bitrate
+min 3 / max 80 Mbit/s; `foveated_encoding` disabled (alvr_render cannot foveate — enabling it
+causes double vision); `avoid_video_glitching=true`; transcoding/emulated view width 1832
+(ALVR aligns to 1824×1984); `server_send_buffer_bytes=Custom(131072)`,
+`max_queued_server_video_frames=3` (Wi-Fi limits; wired overrides them in code to max buffer and
+16 frames); wired client `Custom("alvr.client.monado")`.
+- USB: ADB forward 9943/9944, TCP; measured ~76 Mbit/s, 72 FPS, lossless.
+- Wi-Fi: UDP via the 2.4 GHz rt2800usb adapter (~3–32 Mbit/s); Adaptive + AIMD + pacing 1.5×.
+
+**Unresolved risks.** Shutdown SIGBUS (stop service while streaming); one unreproduced
+mid-stream SIGBUS; encoder dumps show flat colours while the headset shows content
+(capture-path anomaly, diagnostic only); pacing/send-buffer sizing not yet live-tested on
+Wi-Fi; foveation unsupported; test-only legacy protocol still enabled on the service.
+
+**Controllers plan (W14)** (higher priority than Loft polish): design in
+`docs/controllers.md` — ALVR data (poses via `alvr_get_device_motion(hand_*)`, button batches
+via `BUTTONS_UPDATED`/`alvr_get_buttons`, `alvr_send_haptics`), two Monado Touch
+`xrt_device`s, pose/button/haptic mapping, 5 incremental steps. Found while researching:
+alvr_render never drains `BUTTONS_UPDATED`, so server_core's button queue grows for the whole
+session (fixed by W14 step 2).
+
+**Next human test:** USB then Wi-Fi look-around in the Loft (command above).
+**Next development task:** W14 step 1 (controller poses as Monado xrt_devices), then the Loft.
+
+## STATUS SNAPSHOT (2026-09-27 ~09:55, superseded)
 
 **Working:** end-to-end video over **USB** (ADB-forwarded TCP, lossless at 30 Mbit/s, 72/72 FPS)
 and over **2.4 GHz Wi-Fi** (stable, adaptive at ~3-6 Mbit/s on a ~3-4 Mbit/s link; operator can look
