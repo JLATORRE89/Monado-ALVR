@@ -58,11 +58,48 @@ def cleanup_companion_warnings() -> None:
         new = """        AlvrVkExport out {};
         out.sem = timelineSem;
         return out;"""
+        changed = False
         if old in text:
-            renderer.write_text(text.replace(old, new, 1))
+            text = text.replace(old, new, 1)
+            changed = True
+        # Some companion revisions use a differently indented aggregate return.
+        import re
+        aggregate = re.compile(
+            r"return\s+AlvrVkExport\s*\{\s*\.sem\s*=\s*timelineSem\s*,?\s*\};",
+            re.MULTILINE,
+        )
+        if aggregate.search(text):
+            text = aggregate.sub("AlvrVkExport out {};\n        out.sem = timelineSem;\n        return out;", text, count=1)
+            changed = True
+        if changed:
+            renderer.write_text(text)
             print(f"[cleanup] {renderer}: initialize AlvrVkExport")
         elif "AlvrVkExport out {};" in text:
             print(f"[already cleaned] {renderer}: AlvrVkExport")
+        else:
+            print(f"[warning cleanup skipped] {renderer}: AlvrVkExport pattern not found")
+
+    encoder = root / "src" / "alvr_render" / "src" / "Encoder.cpp"
+    if encoder.is_file():
+        text = encoder.read_text()
+        old = "    auto& avHwCtx = *new alvr::HWContext(vkCtx);"
+        if old in text:
+            text = text.replace(old, "    [[maybe_unused]] auto& avHwCtx = *new alvr::HWContext(vkCtx);", 1)
+            encoder.write_text(text)
+            print(f"[cleanup] {encoder}: mark retained HWContext reference maybe_unused")
+        elif "[[maybe_unused]] auto& avHwCtx" in text:
+            print(f"[already cleaned] {encoder}: avHwCtx")
+
+    renderer_cpp = root / "src" / "alvr_render" / "src" / "Renderer.cpp"
+    if renderer_cpp.is_file():
+        text = renderer_cpp.read_text()
+        old = "    for (int i = 0; i < ImageCount; ++i) {"
+        if old in text:
+            text = text.replace(old, "    for (u32 i = 0; i < ImageCount; ++i) {", 1)
+            renderer_cpp.write_text(text)
+            print(f"[cleanup] {renderer_cpp}: fix ImageCount signedness")
+        elif "for (u32 i = 0; i < ImageCount; ++i)" in text:
+            print(f"[already cleaned] {renderer_cpp}: ImageCount signedness")
 
     if utils.is_file():
         text = utils.read_text()
