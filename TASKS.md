@@ -391,3 +391,26 @@ Goal (operator): streaming must work on 2.4 GHz networks.
 - Next candidates: packet pacing (reduce burst loss/queueing on 2.4 GHz); lower latency floor
   (queue is ~160 ms at 3 Mbit/s: consider a smaller send buffer relative to bitrate); better
   2.4 GHz channel/adapter placement (operator).
+
+### W11. Exit controls, queue sizing, pacing, UI (2026-09-27 ~10:00-10:15)
+- PC exit: `scripts/xr-app.sh {start|stop|stop-all|status}` + web UI buttons (8792bbb72);
+  verified stop/start via the UI endpoints.
+- In-headset exit (ALVR 0bf9b502): hold left menu (≡) 2 s while streaming -> xrRequestExitSession
+  -> leave session loop -> Activity.finish(). APK built (0 warnings), installed sha256 `820a6961…`.
+  NOT yet tested in the headset.
+- Send buffer = 3 frames of current bitrate (32 KB-2 MB) and UDP shard pacing at 1.5x bitrate
+  (ALVR 616a740d). Server core deployed sha256 `3145f29d…`. NOT yet tested live (headset was not
+  connected); expected markers `SEND_BUFFER_RESIZE`, smaller `ss` queue, lower network latency.
+- Web UI mobile-first (af0fea496); "Rebuild runtime" now confirms (destructive).
+- `TERMS.md` glossary added.
+
+## Requested next (operator, 2026-09-27)
+1. Live test of W11 (pacing/queue on 2.4 GHz; menu-hold exit).
+2. Media viewer: stream a chosen picture or WebM video (with sound via ALVR's PipeWire output)
+   to the headset, selectable from the web UI.
+3. Desktop streaming with interaction: needs **controller support in the Monado ALVR driver**
+   (today only the HMD is exposed; ALVR already delivers controller poses/buttons), then an
+   OpenXR desktop viewer such as wlx-overlay-s. Controllers are also the prerequisite for using
+   pointers on the web UI inside VR.
+4. Web UI reachable from the Quest browser would require binding beyond 127.0.0.1 (security
+   decision for the operator; currently localhost only).
