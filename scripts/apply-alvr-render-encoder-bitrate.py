@@ -137,6 +137,42 @@ patch_once(
     "video.preferred_fps so encoders get a real rate",
 )
 
+# Codec and bit depth also live in openvr_config, which alvr_get_settings_json() does not
+# provide, so alvr_render always used H.264 8-bit. Follow video.preferred_codec
+# ("H264" | "Hevc" | "AV1") and video.encoder_config.use_10bit (null | bool). The session
+# default (H264) keeps the proven H.264 path unchanged.
+patch_once(
+    settings_cpp,
+    """            if (preferredFps.is<double>()) {
+                m_refreshRate = (int)preferredFps.get<double>();
+            }
+        }
+""",
+    """            if (preferredFps.is<double>()) {
+                m_refreshRate = (int)preferredFps.get<double>();
+            }
+            auto preferredCodec = v.get("video").get("preferred_codec");
+            if (preferredCodec.is<std::string>()) {
+                auto const &name = preferredCodec.get<std::string>();
+                m_codec = name == "Hevc" ? 1 : name == "AV1" ? 2 : 0; // ALVR_CODEC_{H264,HEVC,AV1}
+            }
+            auto encoderConfig = v.get("video").get("encoder_config");
+            if (encoderConfig.is<picojson::object>() && encoderConfig.get("use_10bit").is<bool>()) {
+                m_use10bitEncoder = encoderConfig.get("use_10bit").get<bool>();
+            }
+        }
+""",
+    "auto preferredCodec = v.get(\"video\")",
+)
+
+patch_once(
+    vaapi,
+    """            << " source=" << (alvrParamsValid ? "alvr" : "fallback") << std::endl;""",
+    """            << " source=" << (alvrParamsValid ? "alvr" : "fallback")
+            << " codec=" << settings.m_codec << " ten_bit=" << settings.m_use10bitEncoder << std::endl;""",
+    "<< \" ten_bit=\" <<",
+)
+
 print()
 print("alvr_render encoder bitrate seeding is applied.")
 print("Expected marker:")
