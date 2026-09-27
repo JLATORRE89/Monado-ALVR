@@ -178,12 +178,25 @@ patch_once(
     "[INTEL-XR-SERVER] ENCODER_INPUT",
 )
 
+patch_once(
+    alvr_render,
+    """    ParseFrameNals(encoder->GetCodec(), viewParams, framePacket.data, framePacket.size, framePacket.pts, framePacket.isIDR);""",
+    """    static bool intelXrParseFrameNalsLogged = false;
+    if (!intelXrParseFrameNalsLogged) {
+        std::cerr << "[INTEL-XR-SERVER] PARSE_FRAME_NALS_ENTER bytes=" << framePacket.size
+                  << " idr=" << (framePacket.isIDR ? "true" : "false") << std::endl;
+        intelXrParseFrameNalsLogged = true;
+    }
+    ParseFrameNals(encoder->GetCodec(), viewParams, framePacket.data, framePacket.size, framePacket.pts, framePacket.isIDR);""",
+    "[INTEL-XR-SERVER] PARSE_FRAME_NALS_ENTER",
+)
+
 print()
 print("Server video instrumentation is applied.")
 print("Expected markers:")
 print("  FRAME_RECEIVED_FROM_MONADO   (Monado-ALVR repository source)")
 print("  ENCODER_INPUT                (alvr_render companion)")
-print("  ENCODED_FRAME ... idr=...    (alvr_render companion)")
+print("  ENCODED_FRAME ... idr=...    (alvr_render companion)")\nprint("  PARSE_FRAME_NALS_ENTER       (alvr_render companion)")\nprint("  VIDEO_NAL_ENTER              (JLATORRE89/ALVR branch)")\nprint("  VIDEO_CHANNEL_ENQUEUE        (JLATORRE89/ALVR branch)")\nprint("  VIDEO_CHANNEL_DEQUEUE        (JLATORRE89/ALVR branch)")
 print("  VIDEO_PACKET_SENT ...        (JLATORRE89/ALVR branch)")
 print("  DECODER_CONFIG_SENT ...      (JLATORRE89/ALVR branch)")
 print()
