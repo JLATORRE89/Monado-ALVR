@@ -77,7 +77,52 @@ patch_once(
     "INTEL_XR_DUMP_H264",
 )
 
+# Upgrade: dump while the trigger file exists (checked every ~0.5 s, max 30 s at 72 fps),
+# starting with a forced IDR so the capture window is decodable; no restart needed.
+patch_once(
+    encoder_cpp,
+    f"""        static int intelXrDumpState = -1; // -1 unknown, 0 off, 1 on
+        static u64 intelXrDumpFrames = 0;
+        if (intelXrDumpState < 0) {{
+            intelXrDumpState = std::filesystem::exists("{logs}/INTEL_XR_DUMP_H264") ? 1 : 0;
+        }}
+        if (intelXrDumpState == 1 && intelXrDumpFrames < 150) {{
+            std::ofstream dump("{logs}/encoder-dump.h264", std::ios::binary | std::ios::app);
+            dump.write(reinterpret_cast<char const*>(framePacket.data), framePacket.size);
+            if (++intelXrDumpFrames == 150) {{
+                std::cerr << "[INTEL-XR-SERVER] ENCODER_DUMP_DONE frames=150" << std::endl;
+            }}
+        }}""",
+    f"""        // INTEL_XR_DUMP_WHILE_TRIGGER: record while the trigger file exists.
+        static bool intelXrDumping = false;
+        static bool intelXrDumpWaitIdr = false;
+        static u64 intelXrDumpCheck = 0;
+        static u64 intelXrDumpFrames = 0;
+        if (intelXrDumpCheck++ % 36 == 0) {{
+            bool const want = std::filesystem::exists("{logs}/INTEL_XR_DUMP_H264");
+            if (want && !intelXrDumping) {{
+                intelXrDumping = true;
+                intelXrDumpWaitIdr = true;
+                intelXrDumpFrames = 0;
+                idrScheduler.RequestIDR();
+                std::cerr << "[INTEL-XR-SERVER] ENCODER_DUMP_START" << std::endl;
+            }} else if (!want && intelXrDumping) {{
+                intelXrDumping = false;
+                std::cerr << "[INTEL-XR-SERVER] ENCODER_DUMP_STOP frames=" << intelXrDumpFrames << std::endl;
+            }}
+        }}
+        if (intelXrDumping && intelXrDumpWaitIdr && framePacket.isIDR) {{
+            intelXrDumpWaitIdr = false;
+        }}
+        if (intelXrDumping && !intelXrDumpWaitIdr && intelXrDumpFrames < 2160) {{
+            std::ofstream dump("{logs}/encoder-dump.h264", std::ios::binary | std::ios::app);
+            dump.write(reinterpret_cast<char const*>(framePacket.data), framePacket.size);
+            ++intelXrDumpFrames;
+        }}""",
+    "INTEL_XR_DUMP_WHILE_TRIGGER",
+)
+
 print()
 print("alvr_render opt-in encoder dump is applied.")
-print(f"Trigger: touch {logs}/INTEL_XR_DUMP_H264 and restart the service.")
+print(f"Trigger: touch {logs}/INTEL_XR_DUMP_H264 to start recording, delete it to stop.")
 print("No Git refs were changed.")
