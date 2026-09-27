@@ -29,11 +29,13 @@ def req(path, method="GET", data=None):
     with urllib.request.urlopen(r,timeout=3) as x:return x.read()
 PAGE="""<!doctype html><meta charset=utf-8><title>Intel XR Clients</title>
 <style>body{font:16px system-ui;max-width:900px;margin:32px auto;padding:0 20px}button,input,select{margin:4px;padding:8px}pre{background:#eee;padding:12px}.card{border:1px solid #bbb;padding:12px;margin:12px 0}</style>
-<h1>Intel XR Clients</h1><div id=stack>Checking stack...</div><p>Default policy: <b>auto-accept protocol-valid ALVR clients</b>.</p>
+<h1>Intel XR Clients</h1><div id=stack>Checking stack...</div>
+<h2>Test app</h2><button onclick="app('start')">Start test app</button><button onclick="app('stop')">Exit test app</button><button onclick="app('stop-all')">Exit app + stop runtime</button><span id=appmsg></span><p>Default policy: <b>auto-accept protocol-valid ALVR clients</b>.</p>
 <h2>Settings</h2><p>Edit any item in <code>config/xr-build.json</code>.</p><select id=settingSelect onchange="showSetting()"><option value="">Select a setting...</option></select><span id=settingEditor></span><button onclick="saveSelectedSetting()">Update setting</button><button onclick="service('restart')">Restart services</button><button onclick="service('rebuild')">Rebuild runtime</button><span id=setmsg></span><h2>Approved MAC devices</h2><input id=file type=file accept=".json,.xlsx"><button onclick="upload()">Import JSON/XLSX</button><pre id=approved></pre>
 <h2>ALVR clients</h2><button onclick="clearClients()">Clear client cache</button><span id=msg></span><div id=x>Loading...</div>
 <script>
-async function stackStatus(){try{let r=await fetch('/api/status');let j=await r.json();stack.innerHTML='<b>Runtime:</b> '+j.runtime+' &nbsp; <b>API:</b> '+j.api+' &nbsp; <b>UI:</b> READY'}catch(e){stack.textContent='Stack status unavailable: '+e}}
+async function stackStatus(){try{let r=await fetch('/api/status');let j=await r.json();stack.innerHTML='<b>Runtime:</b> '+j.runtime+' &nbsp; <b>API:</b> '+j.api+' &nbsp; <b>Test app:</b> '+j.app+' &nbsp; <b>UI:</b> READY'}catch(e){stack.textContent='Stack status unavailable: '+e}}
+async function app(a){appmsg.textContent=' '+a+'...';try{let r=await fetch('/api/app/'+a,{method:'POST'});let j=await r.json();appmsg.textContent=' '+(r.ok?j.message:'Failed: '+(j.error||r.status))}catch(e){appmsg.textContent=' Failed: '+e}stackStatus()}
 async function service(a){setmsg.textContent=' '+a+'...';let r=await fetch('/api/service/'+a,{method:'POST'});let j=await r.json();setmsg.textContent=r.ok?' '+j.message:' Failed: '+(j.error||r.status);stackStatus();load()}
 let configValues={};
 async function loadSettings(){try{let r=await fetch('/api/config',{cache:'no-store'});let j=await r.json();if(!r.ok)throw Error(j.error||r.status);configValues=j.values||{};let sel=document.getElementById('settingSelect');sel.replaceChildren(new Option('Select a setting...',''));for(let k of Object.keys(configValues).sort())sel.add(new Option(k,k));document.getElementById('settingEditor').innerHTML='';document.getElementById('setmsg').textContent=' Loaded '+Object.keys(configValues).length+' settings.'}catch(e){document.getElementById('setmsg').textContent=' Config error: '+e}}
@@ -55,7 +57,8 @@ class H(BaseHTTPRequestHandler):
             runtime=subprocess.run(["systemctl","--user","is-active","intel-xr-monado.service"],capture_output=True,text=True).stdout.strip()
             try:req("/api/ping"); api="READY"
             except Exception:api="DOWN"
-            return self.sendx(200,json.dumps({"runtime":runtime or "unknown","api":api}).encode())
+            app=subprocess.run(["pgrep","-x","intel_xr_checke"],capture_output=True,text=True).stdout.strip()
+            return self.sendx(200,json.dumps({"runtime":runtime or "unknown","api":api,"app":"RUNNING" if app else "STOPPED"}).encode())
         if self.path=="/api/config":
             try:
                 cfg=config_load(); vals={}
@@ -83,6 +86,14 @@ class H(BaseHTTPRequestHandler):
                 except Exception as e2:return self.sendx(502,json.dumps({"error":str(e),"fallback_error":str(e2)}).encode())
         self.sendx(404,b"{}")
     def do_POST(self):
+        if self.path in ("/api/app/start","/api/app/stop","/api/app/stop-all"):
+            action=self.path.rsplit("/",1)[1]
+            try:
+                out=subprocess.run(["bash","/ai/intel-xr-prototype/src/Monado-ALVR/scripts/xr-app.sh",action],capture_output=True,text=True,timeout=90)
+                msg=(out.stdout.strip() or out.stderr.strip()).splitlines()
+                code=200 if out.returncode==0 else 500
+                return self.sendx(code,json.dumps({"message":" ".join(msg[-2:]),"error":out.stderr.strip()}).encode())
+            except Exception as e:return self.sendx(500,json.dumps({"error":str(e)}).encode())
         if self.path in ("/api/service/restart","/api/service/rebuild"):
             try:
                 if self.path.endswith("restart"):
