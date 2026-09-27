@@ -45,7 +45,10 @@
 DEBUG_GET_ONCE_LOG_OPTION(alvr_ctrl_log, "ALVR_CTRL_LOG", U_LOGGING_INFO)
 DEBUG_GET_ONCE_BOOL_OPTION(alvr_controllers, "INTEL_XR_ALVR_CONTROLLERS", true)
 // Aim ray relative to the grip pose, degrees about the grip X axis (negative pitches down).
-DEBUG_GET_ONCE_NUM_OPTION(alvr_aim_pitch_deg, "INTEL_XR_ALVR_AIM_PITCH_DEG", -50)
+// Tuned in the headset: -40 was high on both hands, -50 right for the left hand but still high on
+// the right. The ALVR grip correction is mirror-symmetric, so the per-hand difference is empirical.
+DEBUG_GET_ONCE_NUM_OPTION(alvr_aim_pitch_left_deg, "INTEL_XR_ALVR_AIM_PITCH_LEFT_DEG", -50)
+DEBUG_GET_ONCE_NUM_OPTION(alvr_aim_pitch_right_deg, "INTEL_XR_ALVR_AIM_PITCH_RIGHT_DEG", -60)
 
 #define CTRL_INFO(c, ...) U_LOG_XDEV_IFL_I(&(c)->base, (c)->log_level, __VA_ARGS__)
 
@@ -431,7 +434,8 @@ alvr_controller_create(int hand)
 	math_pose_invert(&alvr_offset, &c->alvr_offset_inv);
 
 	c->grip_to_aim = XRT_POSE_IDENTITY;
-	double const aim_pitch = (double)debug_get_num_option_alvr_aim_pitch_deg();
+	double const aim_pitch = (double)(hand == 0 ? debug_get_num_option_alvr_aim_pitch_left_deg()
+	                                             : debug_get_num_option_alvr_aim_pitch_right_deg());
 	math_quat_from_angle_vector((float)(aim_pitch * M_PI / 180.0), &x_axis, &c->grip_to_aim.orientation);
 
 	c->base.name = XRT_DEVICE_TOUCH_CONTROLLER;
@@ -514,8 +518,8 @@ alvr_controllers_create(struct xrt_device **out_left, struct xrt_device **out_ri
 		registered = true;
 	}
 
-	U_LOG_I("[INTEL-XR-CTRL] CREATED left+right Touch controllers (aim pitch %d deg)",
-	        (int)debug_get_num_option_alvr_aim_pitch_deg());
+	U_LOG_I("[INTEL-XR-CTRL] CREATED left+right Touch controllers (aim pitch L %d R %d deg)",
+	        (int)debug_get_num_option_alvr_aim_pitch_left_deg(), (int)debug_get_num_option_alvr_aim_pitch_right_deg());
 	*out_left = &left->base;
 	*out_right = &right->base;
 	return 2;
