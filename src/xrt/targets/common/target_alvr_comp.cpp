@@ -1,4 +1,5 @@
-#include <thread>\n#include <cstdio>
+#include <thread>
+#include <cstdio>
 #include <iostream>
 
 extern "C" {
