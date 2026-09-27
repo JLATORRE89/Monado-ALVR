@@ -64,5 +64,28 @@
   `adb` on PATH. `adb forward --list` is global; entries carry the device serial.
 - ALVR session edits: stop the service first (it rewrites session.json), back up, then start.
 
+## Lessons 2026-09-27 (Wi-Fi / USB)
+- `pkill -f` patterns match the invoking shell's own command line (exit 144). Bracket every
+  pattern and never put another matching word later in the same command; prefer PIDs from
+  `ps -eo pid,comm`.
+- Crash evidence: apport drops cores of non-packaged binaries, `coredumpctl` is not installed and
+  `ptrace_scope=1` blocks attaching. Use the in-process `[INTEL-XR-FAULT]` handler, or run the
+  service as a gdb child only for short tests: gdb causes EINTR-driven disconnects in
+  un-patched ALVR and is not representative of live timing.
+- FFmpeg 6.1 (system) VAAPI ignores runtime `bit_rate`; bitrate changes need an encoder re-open.
+  Measure effective bitrate by frame size (Intel CBR pads each frame to bitrate/fps).
+- ALVR stats/Adaptive key frames by tracking `poll_timestamp`; never send counters as frame
+  timestamps.
+- Adaptive bitrate only learns from frames the client receives; a saturated link needs a
+  server-side congestion signal (send-path drops) and bounded send buffers/queues.
+- Bound latency, not throughput: large socket buffers (Maximum) and 1024 queued frames turn
+  congestion into seconds of delay.
+- Every IDR request path must be rate-limited/coalesced; the consumer (IDRScheduler) is the
+  single place that decides.
+- After any API stress test via `/api/session/values`, re-check `~/.config/alvr/session.json`:
+  those changes persist.
+- `/api/session/values` changes apply live; connection-level settings (buffers, queue length,
+  stream protocol) apply only to new connections.
+
 ## Diagnostic hygiene
 Rate-limit noisy probes. Once a boundary is proven, reduce/remove its temporary logging. Record evidence in `TASKS.md`.

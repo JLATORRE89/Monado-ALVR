@@ -1,5 +1,39 @@
 # Intel XR Prototype — Task Progress
 
+## CURRENT STATUS (2026-09-27 ~09:55)
+
+**Working:** end-to-end video (red/blue checkerboard confirmed in the Quest) over **USB**
+(ADB-forwarded TCP, lossless at 30 Mbit/s, 72/72 FPS). **Wi-Fi (2.4 GHz):** connects and adapts
+bitrate, but not yet confirmed stable in the headset; last attempt ended in a connect/disconnect
+loop caused by the gdb debug run (EINTR, now fixed) — needs a clean re-test.
+
+**Open tasks (in order):**
+1. Clean 2.4 GHz re-test with the normal service (all fixes below deployed). Operator: quit and
+   reopen the ALVR client in the headset (or unplug USB while streaming). Watch
+   `python3 scripts/alvr-stats.py 30`, `ENCODER_REOPEN`, `IDR_REQUEST_COALESCED`, journal
+   `[INTEL-XR-FAULT]`.
+2. SIGBUS crash (2026-09-27 09:33:20, ~1.1 s after the 2nd encoder re-open under Wi-Fi congestion;
+   process stalled, then died). Not reproduced in 18 re-opens (headset-free and live USB). No GPU
+   hang in kernel log. `[INTEL-XR-FAULT]` handler now prints a backtrace if it recurs.
+3. Wi-Fi anti-stutter follow-ups if still choppy: packet pacing (spread a frame's shards over
+   the frame interval), IDR/intra-refresh tuning, client buffering (see the Wi-Fi section).
+4. Separate production fixes from INTEL-XR diagnostics and prepare changes for `main`.
+5. Optional: faster Adaptive start (encoder opens at 30 Mbit/s before the first estimate).
+
+**Live ALVR session (`~/.config/alvr/session.json`), differs from the original:**
+Adaptive bitrate (min 3, max 30 Mbit/s); `avoid_video_glitching=true`; wired client
+`client.wired` + `wired_client_type=Custom("alvr.client.monado")`;
+`server_send_buffer_bytes=Custom(131072)`; `max_queued_server_video_frames=3`.
+Backups in `/ai/intel-xr-prototype/backups/alvr-session-*.json` (oldest:
+`...-2026-09-26-pre-bitrate-test.json`).
+
+**alvr_render companion patches** (pinned detached checkout; apply in this order after a fresh
+checkout, then `cmake --build build/monado-alvr`):
+`apply-server-video-instrumentation.py`, `apply-alvr-render-request-idr.py`,
+`apply-alvr-render-encoder-bitrate.py`, `apply-alvr-render-intel-map-output.py`,
+`apply-alvr-render-dynamic-bitrate.py`, `apply-alvr-render-frame-timestamps.py`,
+`apply-alvr-render-idr-dedup.py`; optional diagnostic `apply-alvr-render-h264-dump.py`.
+
 ## OVERNIGHT RESULT (2026-09-26)
 
 **Status (latest):** END-TO-END VIDEO CONFIRMED — operator sees red (left) / blue (right) in the Quest (2026-09-26 ~22:12). Encoder output verified by PC decode — see section 7. Previously solid green (section 6). Earlier: first decoded video frame reached the Quest renderer
@@ -302,3 +336,44 @@ Goal (operator): streaming must work on 2.4 GHz networks.
 - Next: 2.4 GHz test — unplug USB (wired entry then not ready), let the client connect over
   Wi-Fi, watch `scripts/alvr-stats.py 30` (requested bitrate should fall toward the
   link's capacity) and Quest `loss=` counts / `ENCODER_REOPEN` lines.
+
+### W4. Wi-Fi fallback after unplugging USB (ALVR cfb2e4cf)
+- With a `client.wired` entry the handshake loop `continue`d past the wireless paths whenever
+  wired was not ready, so after unplugging the server stopped trying Wi-Fi (Quest listening on
+  9943). Fixed with a labeled block (`break 'wired`). Verified: reconnected over Wi-Fi.
+
+### W5. Bufferbloat (session change; backup `...-2026-09-27-pre-antibloat.json`)
+- Wi-Fi link measured ~10 Mbit/s (retries); at 30 Mbit/s the socket queue sat at ~4 MB =
+  seconds of latency -> grey screen. Set `server_send_buffer_bytes=Custom(131072)` (kernel:
+  256 KB) and `max_queued_server_video_frames=3` (was 1024). Queue then bounded at ~256 KB.
+
+### W6. Send-path congestion control (ALVR f1f3e0f6)
+- With no frames arriving, the client sends no stats and Adaptive never lowers the bitrate
+  (observed 1,293 drops at 30 Mbit/s, no change). `BitrateManager::report_send_congestion()`
+  on "Can't push to network": cap = 70% (>= 500 ms apart, floor 2 Mbit/s); after 2 s without
+  congestion +5%/s; removed when above the computed bitrate. Observed 30 -> 21 -> 14.7 -> ...
+  -> 5.1 Mbit/s, then recovery to 15 Mbit/s.
+
+### W7. SIGBUS crash (open)
+- 09:33:20: `Main process exited, code=dumped, status=7/BUS` ~1.1 s after `ENCODER_REOPEN
+  bps=14700000` (process silent after one more frame). apport kept no core (non-packaged
+  binary); `coredumpctl` not installed; `ptrace_scope=1` blocks attaching. Reproduction attempts
+  (9 re-opens + insert-IDR spam headset-free; 9 re-opens with live USB client under gdb): no
+  crash. No i915/xe GPU hang in `journalctl -k`. Fault handler added (W9).
+
+### W8. EINTR disconnects (ALVR 1d955f09)
+- Running `monado-service` under gdb: `Client disconnected. Cause: Interrupted system call
+  (os error 4)` every few seconds. `HandleTryAgain` now maps `ErrorKind::Interrupted` to TryAgain.
+
+### W9. Keyframe (IDR) de-duplication (ALVR a6d57db2, Monado-ALVR add2b7689)
+- Operator request: no duplicate keyframes on any channel. Sources: send-path drops (per drop),
+  client RequestIdr (per lost packet, each also resent the decoder config), post-install,
+  `/api/insert-idr`, recording.
+- Server: request on transition into corrupted or when the dropped frame was an IDR; client
+  requests forwarded (with decoder config) at most every 100 ms per connection.
+- alvr_render `IDRScheduler::RequestIDR()`: one pending request, forced IDRs >= 100 ms apart,
+  any encoded IDR satisfies pending requests (`IDR_REQUEST_COALESCED count=N`).
+- Same commit: SIGBUS/SIGSEGV handler (`[INTEL-XR-FAULT] signal= code= addr=` + backtrace).
+- Builds: Monado rc=0, 0 warnings; server core deployed, sha256 `7fb92253…` target == deployed.
+- Not yet live-tested (headset client stopped accepting connections after the gdb loop).
+- Note: a stress test left the session in ConstantMbps 15; restored to Adaptive at ~09:55.

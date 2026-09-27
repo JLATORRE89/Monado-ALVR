@@ -18,19 +18,19 @@ Artifacts:
 - Logs: `logs/`
 
 ## Immediate objective
-Get reliable PC->Quest video delivery. Code path is proven through Quest decoder output and
-`STREAM_RENDER first_decoded_frame` (2026-09-26, at 10 Mbit/s). Remaining blocker is the
-network: the PC's only path to the Quest LAN is a 2.4 GHz USB Wi-Fi adapter saturating at
-~32 Mbit/s. See the OVERNIGHT RESULT in `TASKS.md`.
+Make streaming reliable on 2.4 GHz Wi-Fi (operator goal). USB streaming works (lossless,
+30 Mbit/s, 72 FPS). Wi-Fi fixes are deployed but need a clean live re-test; one SIGBUS crash is
+unexplained. Start from `CURRENT STATUS` at the top of `TASKS.md`.
 
 ## Proven state
-Tracking, render, compositor, encoder and NAL -> server-core paths are proven.
-`ServerCoreEvent::RequestIDR` is consumed by alvr_render `handleEvents()` and drives the existing
-`IDRScheduler` (`scripts/apply-alvr-render-request-idr.py`). VAAPI rate control is seeded from the
-ALVR session (`scripts/apply-alvr-render-encoder-bitrate.py`). Server enqueue/dequeue/send is
-proven with 0 send errors. At 10 Mbit/s the Quest receives packets, decodes them
-(`MEDIACODEC_OUTPUT`) and renders the first decoded frame. alvr_render changes live as idempotent
-`scripts/apply-*.py` helpers because alvr_render is a pinned detached checkout.
+End-to-end video is confirmed in the headset (red/blue checkerboard) over Wi-Fi at 10 Mbit/s and
+over USB at 30 Mbit/s. alvr_render: RequestIDR routed and coalesced in IDRScheduler; VAAPI encodes
+the renderer's real output on Intel; rate control follows ALVR (runtime changes via encoder
+re-open); frames carry tracking timestamps so ALVR statistics/Adaptive work. ALVR server core:
+wired (USB) mode picks the device with the client and falls back to Wi-Fi; send-path congestion
+cuts bitrate (AIMD); EINTR is retried; IDR requests are de-duplicated. alvr_render changes live
+as idempotent `scripts/apply-*.py` helpers (order in TASKS.md) because alvr_render is a pinned
+detached checkout. Live ALVR session settings differ from defaults; see TASKS.md.
 
 ## Procedure
 Read `RULES.md` and `TASKS.md` first. Inspect existing code before patching. Prefer existing ALVR/Monado mechanisms. Make one narrow change per hypothesis. Compile the directly changed component first, verify the actual artifact, then rebuild/restart dependencies. Run one controlled test, record evidence in `TASKS.md`, and commit meaningful changes.
