@@ -1,3 +1,10 @@
+> **Voice with several headsets (2026-09-28):** automatic browser->headset identity (USB device
+> cookie from panel-opened links; Wi-Fi via USB pairing grant), per-headset isolation of voice/GPU
+> jobs, results and review pages (403/404 for other headsets), Wi-Fi-only result delivery ("ready"
+> in the headset's own page). tests/test_voice_isolation.py (6) + all panel suites pass; headset
+> view locked to "This headset" at 412 px. NOT yet verified: real Quest speech/mic, two headsets at
+> once, live GPU workflow (no GPU key configured).
+
 > **USB once -> Wi-Fi (2026-09-28):** panel now also authorizes Wi-Fi *streaming* for Quests seen on
 > USB (approved devices: factory MAC from `dumpsys wifi`; ALVR trusted entry `usb-<serial>` with the
 > current Wi-Fi IP), built into Codex's USB pairing worker; `auto_authorize_usb` (browser pairing)

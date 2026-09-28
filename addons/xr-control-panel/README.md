@@ -274,3 +274,17 @@ automatically, re-checked every 30 s while it stays on USB:
 
 This does not enable wireless ADB. Remove a device from Approved devices and from the ALVR client
 list (Streaming tab) to withdraw it.
+
+## Voice requests with several headsets
+
+Each headset's browser is identified automatically, so it captures and reviews only itself:
+- **Over USB:** when the panel opens a headset's browser (Open panel in headset, result review) it
+  adds a one-time `device=` link; the browser keeps it as a cookie (`device-identity.json` stores
+  only hashes).
+- **Over Wi-Fi:** the headset's USB pairing grant identifies it.
+
+`GET /api/whoami` returns the headset (or `operator` for this PC's browser). A headset's browser
+can only send voice/GPU requests for itself (others get 403) and only sees its own jobs, result
+images and review pages; the PC's browser sees all and can target any headset. Capturing the view
+needs the headset on USB (ADB screenshot); the result is delivered over USB when connected, and
+otherwise waits in that headset's own panel page, which announces it.

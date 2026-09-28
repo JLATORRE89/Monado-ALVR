@@ -629,11 +629,47 @@ for (const [id, all] of [["#restoreSetting", false], ["#restoreAllSettings", tru
 
 // Tap-to-speak is limited to the selected capture-analysis-return workflow.
 let voiceRecognition = null, voiceCancelled = false;
+// Which headset this browser is (set when the panel opened it on that headset, or by Wi-Fi
+// pairing). A headset's browser always captures and reviews itself; the PC can pick any headset.
+let me = { serial: null, role: "operator" };
+async function loadWhoami() {
+  try { me = await api("/api/whoami"); } catch { me = { serial: null, role: "operator" }; }
+  refreshVoiceHeadsets();
+  if (me.serial) watchOwnResults();
+}
 function refreshVoiceHeadsets() {
   const select = $("#voiceHeadset"), current = select.value;
+  if (me.serial) {
+    select.replaceChildren(el("option", { value: me.serial }, `This headset (${me.name || me.serial})`));
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
   select.replaceChildren(...[...knownHeadsets.entries()].map(([id, name]) => el("option", { value: id }, `${name} (${id})`)));
   if ([...select.options].some(o => o.value === current)) select.value = current;
 }
+// On a headset: announce its own finished results (they arrive here when it is not on USB).
+let announced = new Set(), resultWatch = null;
+function watchOwnResults() {
+  if (resultWatch) return;
+  const check = async () => {
+    try {
+      for (const j of (await api("/api/gpu/jobs")).jobs) {
+        if (["ready", "delivered"].includes(j.review_state) && !announced.has(j.request_id)) {
+          if (announced.size || j.review_state === "ready") {
+            $("#voiceStatus").replaceChildren("Your result is ready: ",
+              el("a", { href: `/gpu-review/${j.request_id}` }, "open it"));
+            toast("Your GPU result is ready");
+          }
+          announced.add(j.request_id);
+        }
+      }
+    } catch { /* offline for a moment */ }
+  };
+  check();
+  resultWatch = setInterval(check, 5000);
+}
+loadWhoami();
 async function sendScreenRequest(button) {
   return run(button, async () => {
     const serial = $("#voiceHeadset").value, workflow = $("#gpuWorkflow").value, prompt = $("#voiceRequest").value.trim();

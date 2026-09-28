@@ -35,6 +35,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from usb_pairing import UsbPairing, atomic_json
+from device_identity import DeviceIdentity
 from software_updates import UpdateLibrary
 
 import gpu_worker  # noqa: E402  optional add-on: remote shared GPU (Local AI Stack)
@@ -328,7 +329,7 @@ def headset_action(serial: str, action: str) -> dict:
         if res.returncode != 0:
             raise RuntimeError(res.stderr.strip() or "adb reverse failed (is the headset on USB?)")
         adb("-s", serial, "shell", "am", "start", "-a", "android.intent.action.VIEW",
-            "-d", f"http://127.0.0.1:{port}/")
+            "-d", shlex.quote(f"http://127.0.0.1:{port}/?device={DEVICE_IDS.issue(serial)}"))
         return {"message": f"Opened the panel in the headset's browser (http://127.0.0.1:{port}/, over USB)"}
     raise ValueError(f"unknown action {action!r}")
 
@@ -769,6 +770,9 @@ STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=
 TOKEN_FILE = CONFIG_PATH.parent / "pair-token"
 COOKIE = "xrpanel"
 USB_PAIRS = UsbPairing(CONFIG_PATH.parent / "usb-paired-devices.json")
+# Browsers the panel opened on a headset over USB (all arrive from 127.0.0.1) -> that headset.
+DEVICE_IDS = DeviceIdentity(CONFIG_PATH.parent / "device-identity.json")
+DEVICE_COOKIE = "xrdevice"
 _pairing_lock = threading.RLock()
 _pairing_wake = threading.Event()
 UNPAIRED_PAGE = (b"<!doctype html><meta name=viewport content='width=device-width'><title>XR Control Panel</title>"
@@ -972,7 +976,11 @@ def auto_pair_usb_worker():
 def gpu_screen_request(serial, workflow, prompt):
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 2000:
         raise ValueError("Speak or type a request of at most 2000 characters")
-    require_headset(serial)
+    try:
+        require_headset(serial)
+    except (RuntimeError, ValueError) as e:
+        raise RuntimeError(f"Cannot capture this headset's view: {e}. Connect it by USB (the panel captures "
+                           "the view over ADB); results can still come back over Wi-Fi.") from None
     available = gpu_worker.workflows()
     info = available.get(workflow)
     if not isinstance(info, dict) or int(info.get("reference_count") or 0) != 1:
@@ -984,9 +992,15 @@ def gpu_screen_request(serial, workflow, prompt):
     return {"message":"Captured the headset view and submitted your request; the result will return to this headset", "job":rec}
 
 
-def gpu_deliver_review(rec):
+def gpu_deliver_review(rec) -> str:
+    """Show a finished result on the headset that asked for it. Over USB: copy the image to its
+    Pictures and open the review in its browser. Headset not on USB (Wi-Fi only): the result waits
+    in that headset's own panel page (its browser polls /api/gpu/jobs, filtered to itself)."""
     serial = rec["review_serial"]
-    require_headset(serial)
+    try:
+        require_headset(serial)
+    except RuntimeError:
+        return "ready"
     files = [name for name in rec.get("outputs", []) if FILE_RE.fullmatch(name) and Path(name).suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")]
     if not files:
         raise RuntimeError("The workflow returned no reviewable image. Choose an image-analysis workflow that returns an annotated image.")
@@ -999,9 +1013,11 @@ def gpu_deliver_review(rec):
     result = adb("-s", serial, "reverse", "tcp:" + port, "tcp:" + port)
     if result.returncode:raise RuntimeError("Could not open the panel connection on the headset")
     result = adb("-s", serial, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d",
-                 "http://127.0.0.1:" + port + "/gpu-review/" + rec["request_id"])
+                 shlex.quote("http://127.0.0.1:" + port + "/gpu-review/" + rec["request_id"]
+                             + "?device=" + DEVICE_IDS.issue(serial)))
     if result.returncode or "Error:" in result.stdout or "Error:" in result.stderr:
         raise RuntimeError("Review was copied, but its headset browser could not be opened")
+    return "delivered"
 
 
 _gpu_refresh_lock = threading.Lock()
@@ -1023,11 +1039,23 @@ def gpu_screen_worker():
                     gpu_worker._update(ident, review_state="failed", review_error="GPU job did not complete")
                 elif rec["status"] == "complete":
                     gpu_worker._update(ident, review_state="delivering")
-                    gpu_deliver_review(rec)
-                    gpu_worker._update(ident, review_state="delivered", review_error="")
+                    gpu_worker._update(ident, review_state=gpu_deliver_review(rec), review_error="")
             except Exception as e:
                 gpu_worker._update(ident, review_state="failed", review_error=str(e)[:500])
         time.sleep(5)
+
+
+def job_owned_by(rec: dict, serial: str | None) -> bool:
+    """Headset browsers see only their own voice/GPU jobs; the PC's browser (operator) sees all."""
+    if serial is None:
+        return True
+    return rec.get("review_serial") == serial or str(rec.get("source", "")).startswith(serial + "/")
+
+
+def gpu_output_owner_ok(name: str, serial: str | None) -> bool:
+    if serial is None:
+        return True
+    return any(name in (j.get("outputs") or []) for j in gpu_worker.list_jobs() if job_owned_by(j, serial))
 
 
 def gpu_review_page(ident):
@@ -1076,6 +1104,19 @@ class Handler(BaseHTTPRequestHandler):
         self.send(401, UNPAIRED_PAGE, "text/html; charset=utf-8")
         return False
 
+    def identity(self) -> str | None:
+        """The headset this browser belongs to (Wi-Fi pairing grant or the USB device cookie);
+        None for the PC's own browser and global LAN pairings (operator)."""
+        from http.cookies import SimpleCookie
+        cookie = SimpleCookie(self.headers.get("Cookie", ""))
+        if COOKIE in cookie:
+            serial = USB_PAIRS.serial_for(cookie[COOKIE].value)
+            if serial:
+                return serial
+        if DEVICE_COOKIE in cookie:
+            return DEVICE_IDS.serial_for(cookie[DEVICE_COOKIE].value)
+        return None
+
     def log_message(self, *args):
         pass
 
@@ -1102,7 +1143,20 @@ class Handler(BaseHTTPRequestHandler):
             return
         url = urlparse(self.path)
         path = url.path
+        offered = parse_qs(url.query).get("device", [""])[0]
+        if offered and DEVICE_IDS.serial_for(offered):
+            # Opened by the panel on a headset: remember which headset this browser is.
+            self.send_response(303)
+            self.send_header("Location", path)
+            self.send_header("Set-Cookie", f"{DEVICE_COOKIE}={offered}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Strict")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        me = self.identity()
         try:
+            if path == "/api/whoami":
+                name = next((d.get("model") for d in list_adb_devices() if d["serial"] == me), None) if me else None
+                return self.json({"serial": me, "name": name or me, "role": "headset" if me else "operator"})
             if path in ("/", "/index.html"):
                 return self.send(200, (STATIC / "index.html").read_bytes(), STATIC_TYPES[".html"])
             if path.startswith("/static/"):
@@ -1113,6 +1167,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, f.read_bytes(), STATIC_TYPES[f.suffix], cache=True)
             m = re.fullmatch(r"/gpu-review/([0-9a-f-]{36})", path)
             if m:
+                if not job_owned_by(gpu_worker._find(m.group(1)), me):
+                    return self.json({"error": "not found"}, 404)
                 return self.send(200, gpu_review_page(m.group(1)), "text/html; charset=utf-8")
             if path == "/api/updates/downloader":
                 folder = HERE / "downloader"
@@ -1166,10 +1222,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(headsets_snapshot())
             if path == "/api/captures":
                 headset = parse_qs(url.query).get("headset", [None])[0]
-                return self.json({"captures": list_captures(headset)})
+                caps = list_captures(headset)
+                if me:  # another headset's voice/GPU results are not listed
+                    caps = [c for c in caps if c["headset"] != gpu_worker.OUTPUT_FOLDER or gpu_output_owner_ok(c["file"], me)]
+                return self.json({"captures": caps})
             if path.startswith("/captures/"):
                 parts = [unquote(p) for p in path[len("/captures/"):].split("/")]
                 if len(parts) != 2 or not DIR_RE.match(parts[0]) or not FILE_RE.match(parts[1]):
+                    return self.json({"error": "not found"}, 404)
+                if parts[0] == gpu_worker.OUTPUT_FOLDER and not gpu_output_owner_ok(parts[1], me):
                     return self.json({"error": "not found"}, 404)
                 f = CAPTURE_DIR / parts[0] / parts[1]
                 if not f.is_file():
@@ -1198,7 +1259,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/gpu/workflows":
                 return self.json({"workflows": gpu_worker.workflows()})
             if path == "/api/gpu/jobs":
-                return self.json({"jobs": gpu_worker.list_jobs()})
+                return self.json({"jobs": [j for j in gpu_worker.list_jobs() if job_owned_by(j, me)]})
             if path == "/api/approved":
                 res = approved_tool("list")
                 if res.returncode != 0:
@@ -1303,9 +1364,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json({"message": "Connected to the GPU worker", "account": acct})
             if path == "/api/gpu/screen-request":
                 req = json.loads(self.body())
-                return self.json(gpu_screen_request(req.get("serial"), req.get("workflow"), req.get("prompt")), 202)
+                me = self.identity()
+                if me and req.get("serial") not in (None, "", me):
+                    return self.json({"error": "A headset can only capture and review its own view"}, 403)
+                return self.json(gpu_screen_request(me or req.get("serial"), req.get("workflow"), req.get("prompt")), 202)
             if path == "/api/gpu/retry-review":
                 rec = gpu_worker._find(json.loads(self.body()).get("request_id"))
+                if not job_owned_by(rec, self.identity()):
+                    return self.json({"error": "not found"}, 404)
                 if not rec.get("review_serial") or rec.get("review_state") != "failed":
                     raise ValueError("No failed headset review to retry")
                 gpu_worker._update(rec["request_id"], review_state="waiting", review_error="")

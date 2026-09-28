@@ -90,6 +90,17 @@ class UsbPairing:
             return any(row["state"] == "paired" and hmac.compare_digest(digest, row.get("digest", ""))
                        for row in self.data["devices"].values())
 
+    def serial_for(self, token):
+        """The headset whose paired browser holds this credential (None if not paired)."""
+        if not token:
+            return None
+        digest = hashlib.sha256(token.encode()).hexdigest()
+        with self.lock:
+            for serial, row in self.data["devices"].items():
+                if row["state"] == "paired" and hmac.compare_digest(digest, row.get("digest", "")):
+                    return serial
+        return None
+
     def revoke(self):
         with self.lock:
             for row in self.data["devices"].values():
