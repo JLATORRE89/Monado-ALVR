@@ -1068,6 +1068,13 @@ def record_headset_mic(serial: str, seconds: float) -> bytes:
     return data
 
 
+def stream_codec(data: bytes) -> str:
+    """ffmpeg demuxer for an Annex-B keyframe: HEVC starts with a VPS/SPS NAL, H.264 with SPS/AUD."""
+    i = data.find(b"\x00\x00\x01")
+    head = data[i + 3] if 0 <= i < len(data) - 3 else 0
+    return "hevc" if (head >> 1) & 0x3F in (32, 33, 34, 35) and head & 0x81 == 0 else "h264"
+
+
 def stream_view_capture(serial: str) -> str:
     """Capture what the runtime streams to this headset (works over Wi-Fi, no ADB): ask its encoder
     for one keyframe (alvr_render companion step 13), decode the left eye and save it as a capture.
@@ -1088,7 +1095,8 @@ def stream_view_capture(serial: str) -> str:
         raise RuntimeError("the headset's stream did not answer (is its runtime running?)")
     name = f"view-{time.strftime('%Y%m%d-%H%M%S')}.jpg"
     out = capture_dir_for(serial) / name
-    res = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-n", "-i", str(frame), "-frames:v", "1",
+    fmt = stream_codec(frame.read_bytes()[:64])
+    res = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-n", "-f", fmt, "-i", str(frame), "-frames:v", "1",
                           "-vf", "crop=iw/2:ih:0:0", "-q:v", "2", str(out)], capture_output=True, text=True, timeout=30)
     if res.returncode or not out.is_file():
         raise RuntimeError("the captured stream frame could not be decoded")

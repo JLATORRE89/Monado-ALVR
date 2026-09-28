@@ -66,6 +66,13 @@ class WifiCaptureTests(unittest.TestCase):
                                str(out)], capture_output=True, text=True, check=True).stdout.strip()
         self.assertEqual(size, '128,128')
 
+    def test_stream_codec_detection(self):
+        for codec, fmt in (('libx264', 'h264'), ('libx265', 'hevc')):
+            src = self.d / f'src.{fmt}'
+            subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=256x128', '-frames:v', '1',
+                            '-c:v', codec, '-f', fmt, str(src)], check=True)
+            self.assertEqual(self.s.stream_codec(src.read_bytes()[:64]), fmt)
+
     def test_no_answer_is_an_error_and_clears_request(self):
         with patch.object(self.s.time, 'time', side_effect=[0, 0, 10]):
             with self.assertRaises(RuntimeError):

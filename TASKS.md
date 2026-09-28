@@ -1,3 +1,14 @@
+> **Loft image quality, stream side (2026-09-28):** ALVR session switched H.264 -> HEVC (8-bit; Arc
+> VAAPI HEVC LP encode; backup ~/.config/alvr/session.json.pre-hevc-2026-09-28). Same Loft view,
+> same 76 Mbit/s: keyframe 158,400 B (H.264, blocky, subtitles illegible) -> 110,772 B (HEVC,
+> brick detail and subtitles legible). Panel snapshot now detects HEVC. Root cause of blocky
+> keyframes: alvr_render rc_buffer_size = bitrate/fps (one frame of bits per IDR). NOT verified:
+> Quest decode/latency with HEVC. Revert = copy the backup back and restart intel-xr-monado.
+> Next quality steps: HEVC 10-bit, larger IDR budget (latency trade-off), faster PC->Quest link
+> (5 GHz/ethernet AP instead of the 2.4 GHz USB adapter), Loft art pass (baked AO/shadows).
+> (GPU add-on pointed at this PC's GPU API https://127.0.0.1 as "localnet" with the local CA;
+> it needs a connection key with render+storage scopes from Open WebUI account settings.)
+
 > **Wi-Fi capture + voice, not limited to USB (2026-09-28):** (1) view capture without ADB: companion
 > step 13 `apply-alvr-render-view-snapshot.py` (encoder writes one keyframe to
 > `$XDG_RUNTIME_DIR/intel-xr-view.h264` on `intel-xr-view-request`), default Quest 2 FOV seeded in
