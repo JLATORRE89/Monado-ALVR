@@ -251,3 +251,10 @@ selected-headset delivery and simulated speech tests pass, but real model detect
 Quest microphone support and in-headset review need provider/device acceptance.
 Do not substitute a generative image workflow and claim verified object detection.
 See [browser speech support](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition).
+
+Quest microphone check: GPU Worker includes a 12-second Test Quest microphone meter.
+It requests browser/Android permission independently of speech or GPU setup. Samples
+are analyzed locally without recording or upload. Stop, page hide, permission denial,
+and late permission grants release input tracks. Input signal is not proof of speech
+recognition or model detection. If access is denied, grant Meta Quest Browser and the
+site microphone permission; use USB localhost or HTTPS for a secure browser context.

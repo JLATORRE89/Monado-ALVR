@@ -654,6 +654,7 @@ if (!BrowserSpeech || !window.isSecureContext) {
 $("#voiceSpeak").addEventListener("click", () => {
   if (!BrowserSpeech || voiceRecognition) return;
   if (!$("#voiceHeadset").value || !$("#gpuWorkflow").value) return toast("Select a headset and image-analysis workflow first", "error");
+  stopMicTest("Microphone test stopped for voice input.");
   const recognition = new BrowserSpeech(); voiceRecognition = recognition; voiceCancelled = false;
   recognition.lang = navigator.language || "en-US"; recognition.interimResults = false; recognition.continuous = false;
   $("#voiceSpeak").disabled = true; $("#voiceStop").disabled = false; $("#voiceStatus").textContent = "Listening…";
@@ -688,3 +689,70 @@ $("#captureExportForm").addEventListener("submit", e => {
   updateCaptureSelection();
   if ($("#captureExport").disabled) { e.preventDefault(); toast("Select at least one capture to export", "error"); }
 });
+
+// Microphone input is tested separately from speech recognition and GPU connectivity.
+let micGeneration = 0, micStream = null, micContext = null, micFrame = null, micTimer = null;
+function stopMicTest(message) {
+  micGeneration++;
+  if (micFrame !== null) cancelAnimationFrame(micFrame);
+  clearTimeout(micTimer); micFrame = null; micTimer = null;
+  micStream?.getTracks().forEach(track => track.stop()); micStream = null;
+  micContext?.close().catch(() => {}); micContext = null;
+  $("#micLevel").value = 0; $("#micTest").disabled = false; $("#micTestStop").disabled = true;
+  if (message) $("#micStatus").textContent = message;
+}
+function microphoneError(error) {
+  const messages = {
+    NotAllowedError: "Microphone permission was denied. Allow Microphone for Meta Quest Browser in headset app permissions and allow it for this site, then try again.",
+    NotFoundError: "No microphone is available to this browser. Check the headset microphone settings.",
+    NotReadableError: "The microphone could not be opened. Unmute it in Quest Quick Settings and close another app using it, then retry.",
+    SecurityError: "The browser blocked microphone access. Open this panel through the USB headset button or HTTPS."
+  };
+  return messages[error.name] || `Microphone test failed: ${error.message || error.name}`;
+}
+$("#micTest").addEventListener("click", async () => {
+  voiceCancelled = true; voiceRecognition?.abort();
+  stopMicTest();
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    $("#micStatus").textContent = "Microphone access needs HTTPS or localhost. Connect USB and use Open panel in headset, then test here."; return;
+  }
+  const Audio = window.AudioContext || window.webkitAudioContext;
+  if (!Audio) { $("#micStatus").textContent = "This browser cannot show a microphone meter."; return; }
+  const generation = micGeneration;
+  $("#micTest").disabled = true; $("#micTestStop").disabled = false;
+  $("#micStatus").textContent = "Allow the microphone prompt in the headset. Then speak normally.";
+  // Late permission grants after cancellation must not leave a microphone open.
+  micTimer = setTimeout(() => stopMicTest("Microphone permission timed out. Allow the prompt, then start the test again."), 30000);
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+    if (generation !== micGeneration) { stream.getTracks().forEach(track => track.stop()); return; }
+    clearTimeout(micTimer); micStream = stream;
+    micContext = new Audio();
+    const context = micContext;
+    await context.resume();
+    if (generation !== micGeneration) return;
+    const analyser = context.createAnalyser(); analyser.fftSize = 2048;
+    context.createMediaStreamSource(stream).connect(analyser);
+    const samples = new Uint8Array(analyser.fftSize); let peak = 0;
+    $("#micStatus").textContent = "Microphone open. Speak now; the meter should move. Testing for 12 seconds…";
+    function measure() {
+      if (generation !== micGeneration) return;
+      analyser.getByteTimeDomainData(samples);
+      const rms = Math.sqrt(samples.reduce((sum, x) => sum + ((x - 128) / 128) ** 2, 0) / samples.length);
+      peak = Math.max(peak, rms); $("#micLevel").value = Math.min(100, Math.round(rms * 500));
+      micFrame = requestAnimationFrame(measure);
+    }
+    measure();
+    micTimer = setTimeout(() => stopMicTest(peak > 0.008
+      ? "Microphone signal detected. Input works; speech recognition is a separate check."
+      : "Microphone permission was granted, but no clear input was detected. Unmute the Quest microphone and try speaking again."), 12000);
+    stream.getAudioTracks().forEach(track => track.addEventListener("ended", () => {
+      if (generation === micGeneration) stopMicTest("Microphone disconnected or permission was revoked. Start another test when ready.");
+    }));
+  } catch (error) {
+    if (generation === micGeneration) stopMicTest(microphoneError(error));
+  }
+});
+$("#micTestStop").addEventListener("click", () => stopMicTest("Microphone test stopped. Nothing was recorded or uploaded."));
+window.addEventListener("pagehide", () => { stopMicTest(); voiceCancelled = true; voiceRecognition?.abort(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden) stopMicTest("Microphone test stopped because the page is hidden."); });

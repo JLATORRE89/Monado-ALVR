@@ -188,6 +188,9 @@
         <label class="field"><span>Headset to capture and return results to</span><select id="voiceHeadset"></select></label>
         <div class="actions" id="voiceExamples"><button class="btn small" data-find="dogs">Find dogs</button><button class="btn small" data-find="a ball">Find a ball</button><button class="btn small" data-find="a chair">Find a chair</button><button class="btn small" data-find="a glass cup">Find a glass cup</button></div>
         <p class="muted">Say “Find a ball in my current field of view,” “Find a chair,” or “Find a glass cup.” Analysis uses what the headset screenshot contains; passthrough visibility depends on the headset’s capture support.</p>
+        <div class="actions"><button class="btn" id="micTest">Test Quest microphone</button><button class="btn" id="micTestStop" disabled>Stop microphone test</button></div>
+        <label class="field"><span>Microphone input level</span><meter id="micLevel" min="0" max="100" value="0">0</meter></label>
+        <p id="micStatus" role="status" class="muted">Test the microphone before speaking a command. The 12-second test stays in this browser; audio is not recorded or uploaded.</p>
         <label class="field"><span>Your request</span><textarea id="voiceRequest" maxlength="2000" placeholder="Find all dogs and mark them in the captured image"></textarea></label>
         <div class="actions"><button class="btn primary" id="voiceSpeak">Speak a request</button><button class="btn" id="voiceStop" disabled>Stop listening</button><button class="btn" id="voiceSend">Capture and send request</button></div>
         <p id="voiceStatus" role="status" class="muted"></p>
@@ -221,6 +224,6 @@
 </main>
 
 <div id="toasts" class="toasts" aria-live="polite"></div>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=20260927-mic1"></script>
 </body>
 </html>

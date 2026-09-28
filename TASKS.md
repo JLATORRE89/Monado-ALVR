@@ -693,3 +693,11 @@ Operator chose to extend the C Loft (not Godot/Unity). Plan:
 - [ ] Plan optional voice-requested analysis of current frames, return annotations for review, and validate latency, reconnect behavior and access controls. Future work only; not implemented in this change.
 
 - Selection correction verified: unchecked captures are omitted from archives; export is disabled with no selection. Legacy bulk GET export was removed.
+
+### Future: standalone .NET XR Downloader
+- [ ] Implement a .NET version of XR Downloader with self-contained Linux and Windows distributions. Retain compatibility with xr-offline-updates-v1 JSON and max-compression tar.gz bundles; test cross-implementation imports and Windows execution. Python remains the current implementation. Requested as later work, not implemented now.
+
+### Quest microphone diagnostics
+- Browser RECORD_AUDIO permission was found not granted. Added an explicit 12-second microphone level test independent of GPU configuration and speech recognition, with permission guidance and cancellation/late-grant cleanup. Test audio stays in browser memory and is not recorded or uploaded. Real headset input and browser speech acceptance pending user interaction.
+
+- Mic diagnostic browser tests passed with simulated signal, denied permission, cancelled pending permission and late stream cleanup. No real audio was captured during those automated tests.
