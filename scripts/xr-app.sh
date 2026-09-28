@@ -84,6 +84,7 @@ case "${1:-status}" in
       XR_LOFT_ON_EXIT="${XR_LOFT_ON_EXIT-bash $MONADO/scripts/quest-client-close.sh}" \
       XR_LOFT_LAUNCH_HOOK="${XR_LOFT_LAUNCH_HOOK-bash $MONADO/scripts/xr-loft-launch.sh}" \
       XR_INSTANCE="$INSTANCE" XR_INSTANCE_INDEX="${INSTANCE_INDEX:-0}" XR_LOFT_PRESENCE_DIR="$PRESENCE_DIR" \
+      PULSE_SERVER="unix:/run/user/$(id -u)/pulse/native" \
       XDG_RUNTIME_DIR="${INSTANCE_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}}" \
       XR_RUNTIME_JSON="$ROOT/build/monado-alvr/openxr_monado-dev.json" \
       LD_LIBRARY_PATH="$ROOT/build/openxr-demo/src/loader:${LD_LIBRARY_PATH:-}" \
