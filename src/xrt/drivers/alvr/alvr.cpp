@@ -39,6 +39,7 @@
 #include <mutex>
 
 #include <EventManager.hpp>
+#include <alvr_server/Settings.h>
 #include <Encoder.hpp>
 #include <utils.hpp>
 
@@ -267,11 +268,15 @@ alvr_hmd_create(void)
 	hmd->base.orientation_tracking_supported = true;
 	hmd->base.position_tracking_supported = true;
 
-	// TODO: Get dynamically / why do we even care about this?
-	hmd->base.hmd->screens[0].nominal_frame_interval_ns = time_s_to_ns(1.0f / 90.0f);
-
 	// TODO: Shouldn't this mabye be called later?
 	auto streamExtent = ensureInit();
+
+	// Pace the compositor at the rate ALVR streams (the session's preferred fps, e.g. 72 Hz on a
+	// Quest 2). A fixed 90 Hz here made every frame "late by 11.11 ms" at 72 fps, halving the
+	// effective rate and exposing frame edges when the view is reprojected during head turns.
+	int const refresh = Settings::Instance().m_refreshRate > 0 ? Settings::Instance().m_refreshRate : 72;
+	hmd->base.hmd->screens[0].nominal_frame_interval_ns = time_s_to_ns(1.0f / (float)refresh);
+	HMD_INFO(hmd, "[INTEL-XR-TIMING] NOMINAL_FRAME_INTERVAL refresh=%d Hz", refresh);
 	auto streamWidth = streamExtent.width / 2;
 
 	hmd->base.hmd->screens[0].w_pixels = streamExtent.width;
