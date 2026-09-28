@@ -1,3 +1,10 @@
+> **Live re-open check (Claude, 2026-09-28 18:41-18:55) - partial:** live runtime now runs the step-15
+> binary (72 Hz interval confirmed). 30 diagnostic requests -> 18 re-opens (74-94 ms), 0 faults, runtime
+> and Loft stayed up, but the Quest client had already stopped streaming (headset not worn), so the
+> with-headset-streaming check is still open. Quest adb then went offline (tablet recovered after an
+> adb server restart). Proximity override (prox_close) is still set on the Quest: undo with
+> `am broadcast -a com.oculus.vrpowermanager.automation_disable`.
+
 > **Encoder re-open SIGBUS — root cause and fix (Claude, 2026-09-28):** the Arc A750 runs without
 > Resizable BAR (lspci: BAR 2 current 256MB, supports up to 8GB; BIOS F68a), so only 256 MB of VRAM
 > is CPU-visible; i915 debugfs showed visible_avail 39 MiB, and 0-7 MiB under load. The Intel media
