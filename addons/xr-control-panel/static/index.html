@@ -20,6 +20,7 @@
 
 <nav class="tabs" role="tablist" aria-label="Sections">
   <button role="tab" data-tab="headsets" aria-selected="true">Headsets</button>
+  <button role="tab" data-tab="tablets">Tablets</button>
   <button role="tab" data-tab="captures">Captures</button>
   <button role="tab" data-tab="streaming">Streaming</button>
   <button role="tab" data-tab="settings">Settings</button>
@@ -105,6 +106,10 @@
     </div>
     <div class="card"><h2>Update history</h2><div id="updateJobs" aria-live="polite"></div></div>
   </section>
+  <section id="tab-tablets" class="tab" role="tabpanel" hidden>
+    <div class="section-head"><h1>Tablets</h1><p class="muted">Tablet access, updates and assistant controls. Connect by USB and authorize this PC to begin.</p></div>
+    <div id="tablets" class="grid"></div>
+  </section>
   <section id="tab-headsets" class="tab" role="tabpanel">
     <div class="section-head">
       <h1>Headsets</h1>
@@ -181,6 +186,22 @@
 
   <section id="tab-settings" class="tab" role="tabpanel" hidden>
     <div class="section-head"><h1>Settings</h1><p class="muted">Runtime build and network settings (<code>config/xr-build.json</code>).</p></div>
+    <div class="card"><details class="add-entry"><summary>Web proxy (optional)</summary>
+      <p>Disabled by default. When enabled, this internet proxy allows only the domains listed for each device. It does not decrypt HTTPS pages or create a device-wide air gap; apps can bypass Android proxy settings. Use network firewall rules for enforced isolation.</p>
+      <label class="switch"><input id="proxyEnabled" type="checkbox"> Enable web proxy</label>
+      <label class="field"><span>Proxy port</span><input id="proxyPort" type="number" value="8084" min="1024" max="65535"></label>
+      <label class="field"><span>Forward through another HTTP proxy (optional)</span><input id="proxyUpstream" placeholder="http://proxy.example:3128"></label>
+      <p class="muted">Leave forwarding empty for direct access with filtering. Forwarding failures stop requests; there is no direct fallback. Only public internet destinations on ports 80 and 443 are supported.</p>
+      <button class="btn" id="proxySave">Save proxy settings</button>
+      <p id="proxyStatus" class="muted" role="status"></p>
+      <label class="field"><span>Device</span><select id="proxyDevice"><option value="">Choose a device…</option></select></label>
+      <label class="switch"><input id="proxyDeviceEnabled" type="checkbox"> Allow this device to use the proxy</label>
+      <label class="field"><span>Allowed domains (one per line)</span><textarea id="proxyDomains" rows="4" placeholder="example.com&#10;*.example.com"></textarea></label>
+      <p class="muted">An empty list blocks every destination. Exact names allow only that host; *.example.com allows its subdomains. Local services should connect directly on your local network.</p>
+      <div class="actions"><button class="btn" id="proxyDeviceSave">Save device rules</button><button class="btn" id="proxyRenew">Replace proxy login</button></div>
+      <p id="proxyLogin" role="status" class="muted"></p>
+      <p class="muted">To use it, set the device’s Wi-Fi proxy to this PC’s LAN address and the proxy port, then enter its assigned login in a proxy-capable browser. This panel does not automatically change device network settings. Keep proxy credentials on your trusted LAN. Turning the proxy off does not block direct internet access.</p>
+    </details></div>
     <div class="card">
       <h2>Panel access</h2>
       <p class="muted">Use this panel from a Quest or supported tablet over Wi-Fi. Connect once by USB and allow this PC's debugging prompt. With automatic authorization enabled below, the device pairs without a separate pairing step.</p>
@@ -263,6 +284,6 @@
 </main>
 
 <div id="toasts" class="toasts" aria-live="polite"></div>
-<script src="/static/app.js?v=20260928-tablet-panel"></script>
+<script src="/static/app.js?v=20260928-proxy"></script>
 </body>
 </html>

@@ -57,8 +57,9 @@ function showTab(name) {
   for (const s of $$(".tab")) s.hidden = s.id !== `tab-${name}`;
   location.hash = name;
   if (name === "captures") loadCaptures();
+  if (name === "headsets" || name === "tablets") loadHeadsets();
   if (name === "streaming") { loadClients(); loadLoftMenu(); refreshApkHeadsets(); }
-  if (name === "settings") { loadSettings(); loadPanelAccess(); }
+  if (name === "settings") { loadSettings(); loadPanelAccess(); loadWebProxy(); }
   if (name === "devices") loadApproved();
   if (name === "gpu") { loadGpu(); queueMicrotask(refreshVoiceHeadsets); }
   if (name === "updates") queueMicrotask(loadUpdates);
@@ -134,6 +135,7 @@ function headsetCard(h) {
       fact("Wi-Fi IPv4", h.ip || "—"),
       fact("Wi-Fi IPv6", (h.ipv6 || []).join("\n") || "—"),
       fact(h.is_tablet ? "Loft" : "ALVR", h.is_tablet ? "Tablet client pending" : alvr))));
+  if (h.is_quest || h.is_tablet) card.append(assistantControls(h));
   if (h.is_tablet) {
     card.append(el("div", { class: "actions" },
       h.awake ? null : actionButton("Wake", h.serial, "wake"),
@@ -161,11 +163,16 @@ async function loadHeadsets(force = false) {
   headsetsBusy = true;
   try {
     const data = await api("/api/headsets");
-    const list = $("#headsets");
-    if (!data.adb) list.replaceChildren(el("div", { class: "card empty" }, "adb was not found. Install Android platform-tools."));
-    else if (!data.headsets.length) list.replaceChildren(el("div", { class: "card empty" },
-      "No headsets connected. Connect a Quest by USB (developer mode on) or enable ADB over Wi‑Fi."));
-    else list.replaceChildren(...data.headsets.map(headsetCard));
+    for (const [id, tablet] of [["#headsets", false], ["#tablets", true]]) {
+      const list = $(id), devices = data.headsets.filter(h => Boolean(h.is_tablet) === tablet);
+      // Keep expanded controls stable during automatic refresh and while an action is running.
+      if (list.querySelector("details[open]")) continue;
+      if (!data.adb) list.replaceChildren(el("div", { class: "card empty" }, "Android device connection is unavailable."));
+      else if (!devices.length) list.replaceChildren(el("div", { class: "card empty" }, tablet
+        ? "No tablets connected. Connect your Tab A9+ by USB and allow debugging."
+        : "No headsets connected. Connect a Quest by USB or authorized Wi-Fi debugging."));
+      else list.replaceChildren(...devices.map(headsetCard));
+    }
     for (const h of data.headsets) knownHeadsets.set(h.serial.replace(/[^A-Za-z0-9._-]/g, "_"), h.model || h.serial);
     refreshCaptureFilter();
   } catch (e) {
@@ -346,7 +353,7 @@ window.addEventListener("resize", sizeTopbar);
   showTab($$(".tabs button").some(b => b.dataset.tab === tab) ? tab : "headsets");
   loadHeadsets();
   setInterval(loadStatus, 5000);
-  setInterval(() => { if (!$("#tab-headsets").hidden) loadHeadsets(); }, 5000);
+  setInterval(() => { if (!$("#tab-headsets").hidden || !$("#tab-tablets").hidden) loadHeadsets(); }, 5000);
 })();
 
 // ---------------------------------------------------------------- GPU worker (optional add-on)
@@ -1016,3 +1023,89 @@ $("#sourceLoadApps").addEventListener("click", e => run(e.currentTarget, async (
   $("#sourcePickerInfo").textContent = data.warning || `${sourceInstalledApps.length} installed apps loaded. Choose one above.`;
   return { message: data.warning || "Installed apps ready to choose" };
 }));
+
+// Assistant changes belong to the device card; a single selector keeps the controls compact.
+function assistantControls(device) {
+  const details = el("details", { class: "add-entry" }, el("summary", {}, "Assistant controls"));
+  const state = el("p", { class: "muted", role: "status" }, "Open to read this device’s assistant.");
+  const choice = el("select", { "aria-label": `Assistant action for ${device.model || device.serial}` },
+    el("option", { value: "" }, "Choose an action…"),
+    el("option", { value: "off" }, "Turn default assistant off"),
+    el("option", { value: "google" }, "Use Google / Gemini"),
+    el("option", { value: "xr", disabled: true }, "Use XR Assistant (unavailable)"),
+    el("option", { value: "restore", disabled: true }, "Restore previous assistant"),
+    el("option", { value: "settings" }, "Open assistant settings on device"),
+    el("option", { value: "refresh" }, "Refresh current assistant"));
+  const apply = el("button", { class: "btn", disabled: true }, "Apply");
+  let busy = false, ready = false;
+  function enabled() { apply.disabled = busy || !choice.value || (!ready && !["settings", "refresh"].includes(choice.value)); }
+  async function read() {
+    ready = false;
+    try {
+      const info = await api(`/api/android-assistant?serial=${encodeURIComponent(device.serial)}`);
+      state.textContent = `Android default assistant: ${info.current}`;
+      choice.querySelector('[value="google"]').disabled = !info.google_available;
+      const xr = choice.querySelector('[value="xr"]'); xr.disabled = !info.xr_available;
+      xr.textContent = info.xr_available ? "Use XR Assistant" : "Use XR Assistant (not installed)";
+      choice.querySelector('[value="restore"]').disabled = !info.restore_available;
+      ready = true;
+    } catch (error) { state.textContent = error.message; }
+    if (choice.selectedOptions[0]?.disabled) choice.value = "";
+    enabled();
+  }
+  choice.addEventListener("change", enabled);
+  details.addEventListener("toggle", () => { if (details.open && !busy) read(); });
+  apply.addEventListener("click", async () => {
+    if (busy) return;
+    const action = choice.value;
+    busy = true; choice.disabled = true; enabled();
+    try {
+      if (action !== "refresh") {
+        const result = await api("/api/android-assistant", { method: "POST", json: { serial: device.serial, action } });
+        toast(result.message);
+      }
+      choice.value = "";
+      await read();
+    } catch (error) { state.textContent = error.message; toast(error.message, "error"); }
+    finally { busy = false; choice.disabled = false; enabled(); }
+  });
+  details.append(state, el("label", { class: "field" }, el("span", {}, "Assistant action"), choice), apply,
+    el("p", { class: "muted" }, "Previous assistant settings are saved on this server before changes. Off disables the Android default assistant. Google/Gemini and XR options require compatible installed apps; Gemini chats are not rerouted."));
+  if (device.is_quest) details.append(el("p", { class: "muted" }, "Meta AI and Quest voice commands may use separate headset settings; their state is not changed or verified by this Android assistant control."));
+  return details;
+}
+
+let proxyProfiles = [];
+async function loadWebProxy() {
+  try {
+    const [data, devices] = await Promise.all([api("/api/web-proxy"), api("/api/headsets")]);
+    proxyProfiles = data.devices;
+    $("#proxyEnabled").checked = data.enabled; $("#proxyPort").value = data.port; $("#proxyUpstream").value = data.upstream;
+    $("#proxyStatus").textContent = data.listening ? "Proxy is listening. Only authenticated, allowed requests can pass." : "Proxy is not listening. Direct device connections are not filtered.";
+    const selected = $("#proxyDevice").value, entries = new Map(proxyProfiles.map(d => [d.serial, d.name]));
+    for (const d of devices.headsets || []) if (d.state === "device") entries.set(d.serial, d.model || d.serial);
+    $("#proxyDevice").replaceChildren(el("option", {value:""}, "Choose a device…"), ...[...entries].map(([id,name])=>el("option", {value:id}, `${name} (${id})`)));
+    if (entries.has(selected)) $("#proxyDevice").value=selected;
+    chooseProxyDevice();
+  } catch(e) { $("#proxyStatus").textContent=e.message; }
+}
+function chooseProxyDevice() {
+  const d=proxyProfiles.find(d=>d.serial===$("#proxyDevice").value);
+  $("#proxyDeviceEnabled").checked=d?.enabled || false;
+  $("#proxyDomains").value=(d?.allowed || []).join("\n");
+  $("#proxyLogin").textContent=d ? `Proxy username: ${d.username}. The password is shown only when created or replaced.` : "A separate login will be created when you save this device.";
+}
+$("#proxyDevice").addEventListener("change",chooseProxyDevice);
+$("#proxySave").addEventListener("click", e=>run(e.currentTarget,async()=>{
+  const result=await api("/api/web-proxy",{method:"POST",json:{enabled:$("#proxyEnabled").checked,port:Number($("#proxyPort").value),upstream:$("#proxyUpstream").value.trim()}});
+  await loadWebProxy();return result;
+}));
+async function saveProxyDevice(renew) {
+  const serial=$("#proxyDevice").value;if(!serial)throw new Error("Choose a device first");
+  const result=await api("/api/web-proxy/device",{method:"POST",json:{serial,enabled:$("#proxyDeviceEnabled").checked,allowed:$("#proxyDomains").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean),renew}});
+  await loadWebProxy();
+  if(result.password)$("#proxyLogin").textContent=`Save this device’s proxy login: username ${result.username} — password ${result.password}. It will not be shown again.`;
+  return result;
+}
+$("#proxyDeviceSave").addEventListener("click",e=>run(e.currentTarget,()=>saveProxyDevice(false)));
+$("#proxyRenew").addEventListener("click",e=>run(e.currentTarget,()=>saveProxyDevice(true)));

@@ -339,3 +339,49 @@ The independent interactive Loft tablet client (own view/presence, touch movemen
 seating/drinking, microphone and result review) remains to be implemented. Browser
 panel access is not an interactive Loft client. Device installation and Wi-Fi
 acceptance require the tablet connected and its debugging prompt accepted.
+
+### Per-device assistant controls and Tablets tab
+
+Quest cards remain under Headsets; SM-X210 cards appear under Tablets. Each authorized
+supported device has a collapsed Assistant controls section with one action dropdown
+and Apply. Actions: turn the Android default assistant off, select Google/Gemini,
+select a compatible XR assistant when configured/installed, restore the saved selection,
+open the device's assistant settings, or refresh. Unavailable assistants are disabled.
+The panel does not redirect Gemini conversations or disable Google's app. Meta AI and
+Quest-native voice features may be independent and are not reported as controlled.
+
+Before changing a selection, role holders and relevant secure settings are saved in
+`~/.config/xr-control-panel/android-assistant-backups.json` (or next to XR_PANEL_CONFIG),
+with owner-only permissions. Backups use hardware serial plus Android user ID so USB
+and wireless debugging can share the same restore record. History remains after restore.
+Conversation history and application data are not included. Changes are read back;
+a failed change attempts to restore the immediate prior state and reports failures.
+Set `xr_assistant_package` in panel config only when a compatible XR assistant APK
+exists; currently none is supplied. A device browser cannot change another device.
+
+### Optional web proxy
+
+Settings → Web proxy is disabled by default and starts no listener. Enabling starts an
+HTTP/HTTPS CONNECT proxy on port 8084 (configurable). Each device profile has its own
+random username/password, enabled flag and domain allowlist. Empty lists deny all;
+exact domains match only that host, and `*.example.com` matches subdomains only.
+Only public destinations on ports 80/443 are permitted; local/loopback/link-local
+addresses are blocked to protect local administrative services. HTTPS remains encrypted:
+only CONNECT destination host/port are filtered. Browsing URLs/bodies are not logged.
+
+Direct internet access with filtering is the initial mode. Optional forwarding accepts
+an unauthenticated HTTP upstream (`http://host:port`); upstream failure never falls back
+to direct routing. Proxy credentials are stripped before forwarding. Profile passwords
+are stored only as hashes in owner-only `web-proxy.json`; they are displayed once on
+creation/replacement. Rule or credential changes close existing proxy connections.
+Only the operator panel can change proxy policies. Up to 32 connections are served;
+HTTP uploads are limited to 16 MiB and chunked HTTP uploads are not supported.
+
+Configure the Android Wi-Fi proxy manually with the PC LAN address and selected port;
+a proxy-capable browser requests that device's proxy login. Network settings are not
+changed automatically. Basic proxy authentication should stay on the trusted local
+network. Local services should be accessed directly rather than through this internet
+proxy. Some Android apps ignore proxy settings or do not support proxy authentication.
+This feature is NOT a physical air gap or device-wide egress enforcement. Turning it off
+does not block direct traffic. Enforced isolation needs separate firewall/network rules,
+which this feature does not change. Hardware browser acceptance is still pending.

@@ -38,6 +38,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from usb_pairing import UsbPairing, atomic_json
 from device_identity import DeviceIdentity
+from android_assistant import AndroidAssistant
+from web_proxy import ProxyManager
 from software_updates import UpdateLibrary
 from update_peers import Peers, ShareKeys, cert_fingerprint_file, pretty, share_listing
 
@@ -782,6 +784,8 @@ USB_PAIRS = UsbPairing(CONFIG_PATH.parent / "usb-paired-devices.json")
 # Browsers the panel opened on a headset over USB (all arrive from 127.0.0.1) -> that headset.
 DEVICE_IDS = DeviceIdentity(CONFIG_PATH.parent / "device-identity.json")
 DEVICE_COOKIE = "xrdevice"
+WEB_PROXY = ProxyManager(CONFIG_PATH.parent / "web-proxy.json")
+ANDROID_ASSISTANT = AndroidAssistant(adb, list_adb_devices, CONFIG_PATH.parent / "android-assistant-backups.json", CFG.get("xr_assistant_package", ""))
 _pairing_lock = threading.RLock()
 _pairing_wake = threading.Event()
 UNPAIRED_PAGE = (b"<!doctype html><meta name=viewport content='width=device-width'><title>XR Control Panel</title>"
@@ -1401,6 +1405,13 @@ class Handler(BaseHTTPRequestHandler):
                                   "auto_authorize_usb": bool(CFG.get("auto_authorize_usb")),
                                   "usb_devices": USB_PAIRS.public(),
                                   "ipv6_available": socket.has_dualstack_ipv6()})
+            if path == "/api/web-proxy":
+                return self.json(WEB_PROXY.public(me))
+            if path == "/api/android-assistant":
+                serial = parse_qs(url.query).get("serial", [""])[0]
+                if me and serial != me:
+                    return self.json({"error": "A device can only control its own assistant"}, 403)
+                return self.json(ANDROID_ASSISTANT.status(serial))
             if path == "/api/headsets":
                 return self.json(headsets_snapshot())
             if path == "/api/captures":
@@ -1459,6 +1470,28 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         try:
+            if path in ("/api/web-proxy", "/api/web-proxy/device"):
+                if self.identity():
+                    return self.json({"error": "Proxy policies are managed from the operator panel"}, 403)
+                if self.headers.get("Origin") and urlparse(self.headers["Origin"]).netloc != self.headers.get("Host"):
+                    return self.json({"error": "Proxy actions must originate from this panel"}, 403)
+                req = json.loads(self.body())
+                if path == "/api/web-proxy":return self.json(WEB_PROXY.configure(req))
+                serial = req.get("serial")
+                dev = next((d for d in list_adb_devices() if d['serial']==serial and d['state']=='device'), None)
+                if not dev and serial not in WEB_PROXY.config['devices']:
+                    raise ValueError("Connect and authorize this device before creating its proxy profile")
+                name = dev.get('model',serial) if dev else WEB_PROXY.config['devices'][serial]['name']
+                return self.json(WEB_PROXY.device(serial,name,req.get('enabled',False),req.get('allowed',[]),req.get('renew',False)))
+            if path == "/api/android-assistant":
+                if self.headers.get("Origin") and urlparse(self.headers["Origin"]).netloc != self.headers.get("Host"):
+                    return self.json({"error": "Assistant actions must originate from this panel"}, 403)
+                req = json.loads(self.body())
+                serial = req.get("serial")
+                me = self.identity()
+                if me and serial != me:
+                    return self.json({"error": "A device can only control its own assistant"}, 403)
+                return self.json(ANDROID_ASSISTANT.action(serial, req.get("action")))
             if path == "/api/captures/export":
                 if int(self.headers.get("Content-Length", "0") or 0) > 128 * 1024:
                     raise ValueError("Capture selection is too large")
@@ -1781,7 +1814,10 @@ def main():
     threading.Thread(target=auto_pair_usb_worker, daemon=True, name="usb-pairing").start()
     threading.Thread(target=gpu_screen_worker, daemon=True, name="gpu-screen-review").start()
     start_https()
-    server.serve_forever()
+    try:WEB_PROXY.start()
+    except OSError:print("Web proxy could not start; no proxy traffic is being forwarded", flush=True)
+    try:server.serve_forever()
+    finally:WEB_PROXY.stop()
 
 
 if __name__ == "__main__":

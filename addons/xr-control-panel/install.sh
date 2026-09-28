@@ -35,7 +35,7 @@ command -v adb >/dev/null || echo "NOTE: adb not on PATH; set \"adb\" in $CONFIG
 
 echo "Installing XR Control Panel to $PREFIX"
 mkdir -p "$PREFIX/static" "$PREFIX/android" "$CONFIG_DIR" "$UNIT_DIR"
-install -m 0755 "$SRC/server.py" "$SRC/approved_devices.py" "$SRC/gpu_worker.py" "$SRC/usb_pairing.py" "$SRC/software_updates.py" "$SRC/device_identity.py" "$SRC/update_peers.py" "$PREFIX/"
+install -m 0755 "$SRC/server.py" "$SRC/approved_devices.py" "$SRC/gpu_worker.py" "$SRC/usb_pairing.py" "$SRC/software_updates.py" "$SRC/device_identity.py" "$SRC/android_assistant.py" "$SRC/web_proxy.py" "$SRC/update_peers.py" "$PREFIX/"
 install -m 0644 "$SRC/static/index.html" "$SRC/static/app.css" "$SRC/static/app.js" "$PREFIX/static/"
 install -m 0644 "$SRC/../xr-downloader/xr_downloader.py" "$PREFIX/"
 mkdir -p "$PREFIX/downloader"
