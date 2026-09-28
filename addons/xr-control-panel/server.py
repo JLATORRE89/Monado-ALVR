@@ -22,6 +22,7 @@ import re
 import shutil
 import shlex
 import socket
+import ssl
 import ipaddress
 import subprocess
 import sys
@@ -59,6 +60,9 @@ DEFAULTS = {
     # this panel (needs lan_access) and ALVR trusts it for Wi-Fi streaming at its Wi-Fi address.
     "auto_authorize_usb": True,
     "auto_trust_usb_streaming": True,
+    # With lan_access, also serve the panel over HTTPS (self-signed, covering this PC's LAN addresses)
+    # so headset browsers may use the microphone over Wi-Fi. 0 turns it off.
+    "https_port": 8483,
 }
 
 
@@ -1245,7 +1249,8 @@ class Handler(BaseHTTPRequestHandler):
         me = self.identity()
         try:
             if path == "/api/voice/status":
-                return self.json({"available": whisper_paths()[0] is not None})
+                return self.json({"available": whisper_paths()[0] is not None,
+                                  "https_port": HTTPS_PORT[0]})
             if path == "/api/whoami":
                 name = next((d.get("model") for d in list_adb_devices() if d["serial"] == me), None) if me else None
                 return self.json({"serial": me, "name": name or me, "role": "headset" if me else "operator"})
@@ -1555,6 +1560,103 @@ def create_http_server(bind, port, lan_access):
     return server_type((bind, port), Handler)
 
 
+# ---------------------------------------------------------------- HTTPS for Wi-Fi browsers
+TLS_DIR = CONFIG_PATH.parent / "tls"
+HTTPS_PORT = [None]  # set once the HTTPS listener runs
+
+
+def lan_addresses() -> list[str]:
+    """Global-scope addresses of this PC (what headsets on the LAN reach it by)."""
+    res = subprocess.run(["ip", "-o", "addr", "show", "scope", "global"], capture_output=True, text=True)
+    found = []
+    for line in res.stdout.splitlines():
+        parts = line.split()
+        # Rotating IPv6 privacy addresses would reissue the certificate (and its browser warning).
+        if len(parts) > 3 and parts[2] in ("inet", "inet6") and "temporary" not in parts and "deprecated" not in parts:
+            addr = parts[3].split("/")[0]
+            if addr not in found:
+                found.append(addr)
+    return found
+
+
+def ensure_tls_cert(addresses: list[str]) -> tuple[Path, Path]:
+    """Self-signed certificate for this PC's LAN addresses; regenerated when an address is new.
+    Browsers warn once (Advanced, Proceed); the page then counts as secure."""
+    cert, key, names = TLS_DIR / "cert.pem", TLS_DIR / "key.pem", TLS_DIR / "names.json"
+    wanted = sorted(set(addresses) | {"127.0.0.1", "::1"})
+    try:
+        covered = set(json.loads(names.read_text()))
+    except (OSError, ValueError):
+        covered = set()
+    if cert.is_file() and key.is_file() and set(wanted) <= covered:
+        return cert, key
+    TLS_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(TLS_DIR, 0o700)
+    host = socket.gethostname()
+    san = ",".join([f"IP:{a}" for a in wanted] + ["DNS:localhost"]
+                   + ([f"DNS:{host}", f"DNS:{host}.local"] if re.fullmatch(r"[A-Za-z0-9-]{1,63}", host) else []))
+    tmp_key = TLS_DIR / "key.pem.new"
+    tmp_key.unlink(missing_ok=True)
+    res = subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+                          "-nodes", "-days", "825", "-subj", "/CN=Intel XR Control Panel",
+                          "-addext", f"subjectAltName={san}", "-addext", "extendedKeyUsage=serverAuth",
+                          "-keyout", str(tmp_key), "-out", str(TLS_DIR / "cert.pem.new")],
+                         capture_output=True, text=True, timeout=60)
+    if res.returncode:
+        raise RuntimeError(res.stderr.strip() or "openssl failed")
+    os.chmod(tmp_key, 0o600)
+    os.replace(tmp_key, key)
+    os.replace(TLS_DIR / "cert.pem.new", cert)
+    atomic_json(names, wanted)
+    return cert, key
+
+
+class TLSMixin:
+    """TLS handshake in the request's own thread, so a slow or plain-HTTP client cannot stall accept()."""
+    tls_context: ssl.SSLContext
+
+    def finish_request(self, request, client_address):
+        request.settimeout(15)
+        try:
+            request = self.tls_context.wrap_socket(request, server_side=True)
+        except (ssl.SSLError, OSError):
+            return
+        request.settimeout(None)
+        super().finish_request(request, client_address)
+
+
+class HTTPSServer(TLSMixin, ThreadingHTTPServer):
+    pass
+
+
+class IPv6HTTPSServer(TLSMixin, IPv6HTTPServer):
+    pass
+
+
+def create_https_server(port, cert, key):
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.load_cert_chain(cert, key)
+    server_type = IPv6HTTPSServer if socket.has_dualstack_ipv6() else HTTPSServer
+    server = server_type(("::", port) if server_type is IPv6HTTPSServer else ("0.0.0.0", port), Handler)
+    server.tls_context = ctx
+    return server
+
+
+def start_https():
+    port = int(CFG.get("https_port") or 0)
+    if not CFG.get("lan_access") or not port:
+        return
+    try:
+        server = create_https_server(port, *ensure_tls_cert(lan_addresses()))
+    except (OSError, RuntimeError, ssl.SSLError) as e:
+        print(f"HTTPS listener not started: {e}", flush=True)
+        return
+    HTTPS_PORT[0] = port
+    print(f"XR Control Panel also on https://<this PC>:{port}/ (headset microphone over Wi-Fi)", flush=True)
+    threading.Thread(target=server.serve_forever, daemon=True, name="https").start()
+
+
 def main():
     server = create_http_server(CFG["bind"], int(CFG["port"]), bool(CFG.get("lan_access")))
     bind = server.server_address[0]
@@ -1562,6 +1664,7 @@ def main():
           f"(runtime: {runtime_root() or 'not configured'}, adb: {ADB or 'missing'})", flush=True)
     threading.Thread(target=auto_pair_usb_worker, daemon=True, name="usb-pairing").start()
     threading.Thread(target=gpu_screen_worker, daemon=True, name="gpu-screen-review").start()
+    start_https()
     server.serve_forever()
 
 

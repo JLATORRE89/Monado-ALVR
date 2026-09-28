@@ -685,17 +685,27 @@ $("#voiceSend").addEventListener("click", e => sendScreenRequest(e.currentTarget
 const BrowserSpeech = window.SpeechRecognition || window.webkitSpeechRecognition;
 // Headset browsers often have no speech recognition (or it needs a cloud service): then the page
 // records a short clip and the panel transcribes it on this PC (whisper.cpp); nothing is stored.
-let serverSpeech = false, voiceRecorder = null;
+let serverSpeech = false, voiceRecorder = null, httpsPort = null;
+// Over Wi-Fi the plain http:// page may not use the microphone; the panel also serves HTTPS.
+function secureUrl() {
+  return httpsPort && location.protocol === "http:" ? `https://${location.host.replace(/:\d+$/, "")}:${httpsPort}${location.pathname}` : null;
+}
+function secureHint(target, text) {
+  const url = secureUrl();
+  if (!url) { target.textContent = text; return; }
+  target.replaceChildren("Voice needs the secure page: ", el("a", { href: url }, "open the panel over HTTPS"),
+    " (first time: tap Advanced, then Proceed). You can type a request here.");
+}
 const canRecord = () => window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && !!window.MediaRecorder;
 function updateSpeakState() {
   const ok = window.isSecureContext && (!!BrowserSpeech || (serverSpeech && canRecord()));
   $("#voiceSpeak").disabled = !ok;
   if (!window.isSecureContext)
-    $("#voiceStatus").textContent = "Voice needs a secure browser page. Use Open panel in headset over USB, or HTTPS. You can type a request here.";
+    secureHint($("#voiceStatus"), "Voice needs a secure browser page. Use Open panel in headset over USB, or HTTPS. You can type a request here.");
   else if (!ok)
     $("#voiceStatus").textContent = "Speech recognition is unavailable in this browser. You can type a request here.";
 }
-api("/api/voice/status").then(s => { serverSpeech = !!s.available; updateSpeakState(); }).catch(() => {});
+api("/api/voice/status").then(s => { serverSpeech = !!s.available; httpsPort = s.https_port || null; updateSpeakState(); }).catch(() => {});
 updateSpeakState();
 async function recordAndTranscribe() {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
@@ -798,7 +808,7 @@ $("#micTest").addEventListener("click", async () => {
   voiceCancelled = true; voiceRecognition?.abort();
   stopMicTest();
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-    $("#micStatus").textContent = "Microphone access needs HTTPS or localhost. Connect USB and use Open panel in headset, then test here."; return;
+    secureHint($("#micStatus"), "Microphone access needs HTTPS or localhost. Connect USB and use Open panel in headset, then test here."); return;
   }
   const Audio = window.AudioContext || window.webkitAudioContext;
   if (!Audio) { $("#micStatus").textContent = "This browser cannot show a microphone meter."; return; }
