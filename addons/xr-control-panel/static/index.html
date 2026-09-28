@@ -33,13 +33,15 @@
     <div class="card">
       <h2>Software updates</h2>
       <details class="add-entry"><summary>Supported downloads and XR Downloader</summary>
-        <p>Add each supported application or firmware download with a direct source URL and trusted SHA-256. Export the list, run XR Downloader on any online Linux or Windows PC, then import its completed tar.gz below. XR Downloader runs independently of this panel.</p>
+        <p class="step-note"><strong>Download XR Downloader first.</strong> Everything in this section works through it: it fetches the files on an online PC and produces the bundle you import below.</p>
+        <div class="actions"><a class="btn primary" href="/api/updates/downloader" download="XR-Downloader.zip">Get XR Downloader (Linux / Windows)</a></div>
+        <p>Then add each supported application or firmware download with a direct source URL and trusted SHA-256. Export the list, run XR Downloader on any online Linux or Windows PC, and import its completed tar.gz below. XR Downloader runs independently of this panel.</p>
         <label class="field"><span>Application or firmware name</span><input id="sourceName"></label>
         <label class="field"><span>Type</span><select id="sourceKind"><option value="apk">Quest app</option><option value="firmware">Quest firmware</option></select></label>
         <label class="field"><span>Version (optional label)</span><input id="sourceVersion"></label>
         <label class="field"><span>Direct download URL</span><input id="sourceUrl" type="url" placeholder="https://…/release.apk"></label>
         <label class="field"><span>SHA-256 from your trusted source</span><input id="sourceHash" maxlength="64"></label>
-        <div class="actions"><button class="btn" id="sourceSave">Save supported download</button><a class="btn" href="/api/updates/export" download="xr-downloads.json">Export download list (JSON)</a><a class="btn" href="/api/updates/downloader" download="XR-Downloader.zip">Get XR Downloader (Linux / Windows)</a></div>
+        <div class="actions"><button class="btn" id="sourceSave">Save supported download</button><a class="btn" href="/api/updates/export" download="xr-downloads.json">Export download list (JSON)</a></div>
         <div id="updateSources"></div>
       </details>
       <label class="field"><span>XR Downloader bundle (.tar.gz)</span><input id="bundleFile" type="file" accept=".gz,.tgz"></label>
