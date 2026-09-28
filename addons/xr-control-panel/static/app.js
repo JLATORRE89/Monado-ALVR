@@ -57,7 +57,7 @@ function showTab(name) {
   for (const s of $$(".tab")) s.hidden = s.id !== `tab-${name}`;
   location.hash = name;
   if (name === "captures") loadCaptures();
-  if (name === "streaming") loadClients();
+  if (name === "streaming") { loadClients(); loadLoftMenu(); refreshApkHeadsets(); }
   if (name === "settings") loadSettings();
   if (name === "devices") loadApproved();
   if (name === "gpu") loadGpu();
@@ -398,3 +398,84 @@ $("#gpuSubmit").addEventListener("click", e => run(e.currentTarget, async () => 
   renderGpuJobs((await api("/api/gpu/jobs")).jobs);
   return res;
 }));
+
+// ---------------------------------------------------------------- Loft menu + media uploads
+let loftMenu = [];
+function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "app"; }
+async function loadLoftMenu() {
+  try {
+    loftMenu = (await api("/api/loft/menu")).items;
+    renderLoftMenu();
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+function renderLoftMenu() {
+  const kinds = { builtin: "Built in", apk: "Quest app", pc: "PC mini-game" };
+  $("#loftButtons").replaceChildren(el("button", { class: "btn", onclick: e => loftCmd(e.currentTarget, "lobby") }, "Lobby"),
+    ...loftMenu.filter(i => i.enabled).map(i =>
+      el("button", { class: "btn", onclick: e => loftCmd(e.currentTarget, `open:${i.id}`) }, i.title)));
+  $("#loftMenuList").replaceChildren(...loftMenu.map((i, n) => el("div", { class: "menu-row" },
+    el("label", { class: "check" }, el("input", { type: "checkbox", checked: i.enabled || null,
+      onchange: e => { loftMenu[n].enabled = e.target.checked; saveLoftMenu(null); } }), el("strong", {}, i.title)),
+    el("span", { class: "muted" }, `${kinds[i.type]}${i.type === "builtin" ? "" : " · " + i.target}`),
+    i.type === "builtin" ? null : el("button", { class: "btn danger small", "data-confirm": `Remove ${i.title} from the menu?`,
+      onclick: e => run(e.currentTarget, async () => { loftMenu.splice(n, 1); return saveLoftMenu(null); }) }, "Remove"))));
+}
+async function saveLoftMenu(button) {
+  return run(button, async () => {
+    const res = await api("/api/loft/menu", { method: "POST", json: { items: loftMenu } });
+    await loadLoftMenu();
+    return res;
+  });
+}
+function loftCmd(button, cmd) {
+  return run(button, () => api(`/api/loft/${cmd}`, { method: "POST" }));
+}
+function addMenuEntry(button, entry) {
+  let id = slug(entry.title), n = 2;
+  while (loftMenu.some(i => i.id === id)) id = `${slug(entry.title)}-${n++}`;
+  loftMenu.push({ enabled: true, id, subtitle: "", ...entry });
+  return saveLoftMenu(button);
+}
+$("#apkLoad").addEventListener("click", e => run(e.currentTarget, async () => {
+  const serial = $("#apkHeadset").value;
+  if (!serial) throw new Error("connect a headset first");
+  const pk = (await api(`/api/headsets/${encodeURIComponent(serial)}/packages`)).packages;
+  $("#apkPackage").replaceChildren(...pk.map(p => el("option", { value: p }, p)));
+  return { message: `${pk.length} apps on the headset` };
+}));
+$("#apkAdd").addEventListener("click", e => {
+  const pkg = $("#apkPackage").value, title = $("#apkTitle").value.trim() || pkg.split(".").pop();
+  if (!pkg) return toast("load and pick an app first", "error");
+  addMenuEntry(e.currentTarget, { type: "apk", title, subtitle: "Quest app", target: pkg });
+});
+$("#pcAdd").addEventListener("click", e => {
+  const path = $("#pcPath").value.trim(), title = $("#pcTitle").value.trim() || path.split("/").pop();
+  if (!path) return toast("enter the game's executable path", "error");
+  addMenuEntry(e.currentTarget, { type: "pc", title, subtitle: "PC mini-game", target: path });
+});
+function refreshApkHeadsets() {
+  $("#apkHeadset").replaceChildren(...[...knownHeadsets.entries()].map(([id, name]) => el("option", { value: id }, `${name} (${id})`)));
+}
+$("#uploadMedia").addEventListener("change", async e => {
+  const files = [...e.target.files];
+  const label = e.target.closest("label");
+  label.setAttribute("aria-busy", "true");
+  let ok = 0;
+  for (const f of files) {
+    try {
+      const res = await fetch("/api/library/upload", { method: "POST", body: f,
+        headers: { "X-Filename": encodeURIComponent(f.name), "Content-Type": "application/octet-stream" } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(`${f.name}: ${data.error || res.status}`);
+      ok++;
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+  label.removeAttribute("aria-busy");
+  e.target.value = "";
+  if (ok) toast(`Uploaded ${ok} file${ok === 1 ? "" : "s"}; the Loft shows them in Pictures / Videos`);
+  loadCaptures();
+});

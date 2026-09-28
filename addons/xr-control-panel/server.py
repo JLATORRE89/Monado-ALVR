@@ -60,7 +60,12 @@ QUEST_SHOTS = "/sdcard/Oculus/Screenshots"
 QUEST_VIDEOS = "/sdcard/Oculus/VideoShots"
 CAPTURE_SERVICE = "com.oculus.metacam/.capture.CaptureService"
 SERIAL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
-FILE_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}\.(jpg|png|mp4)$")
+FILE_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}\.(jpg|jpeg|png|webp|mp4|webm|mov|mkv)$")
+VIDEO_EXTS = {".mp4", ".webm", ".mov", ".mkv"}
+CONTENT_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp",
+                 ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".mkv": "video/x-matroska"}
+LIBRARY = "library"  # captures/<LIBRARY>/ holds uploaded pictures and videos
+MAX_UPLOAD = 4 * 1024 ** 3
 DIR_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$")  # no leading dot: rejects "." and ".."
 
 # Editable keys of the runtime's config/xr-build.json.
@@ -285,7 +290,7 @@ def list_captures(headset: str | None) -> list[dict]:
             if FILE_RE.match(f.name):
                 st = f.stat()
                 items.append({"headset": d.name, "file": f.name, "size": st.st_size, "mtime": st.st_mtime,
-                              "type": "video" if f.suffix == ".mp4" else "image"})
+                              "type": "video" if f.suffix.lower() in VIDEO_EXTS else "image"})
     return sorted(items, key=lambda x: x["mtime"], reverse=True)[:200]
 
 
@@ -298,8 +303,8 @@ def delete_capture(headset: str, file: str, on_headset: bool) -> dict:
         raise ValueError("capture not found")
     f.unlink()
     message = f"Deleted {file}"
-    if on_headset:
-        folder = QUEST_VIDEOS if file.endswith(".mp4") else QUEST_SHOTS
+    if on_headset and headset != LIBRARY:
+        folder = QUEST_VIDEOS if Path(file).suffix.lower() in VIDEO_EXTS else QUEST_SHOTS
         try:
             require_headset(headset)
             res = adb("-s", headset, "shell", "rm", "-f", f"{folder}/{file}")
@@ -307,6 +312,118 @@ def delete_capture(headset: str, file: str, on_headset: bool) -> dict:
         except RuntimeError as e:
             message += f" (headset copy kept: {e})"
     return {"message": message}
+
+
+def safe_upload_name(name: str) -> str:
+    base = Path(name).name
+    stem, suffix = os.path.splitext(base)
+    suffix = suffix.lower()
+    if suffix not in CONTENT_TYPES:
+        raise ValueError("upload pictures (jpg, png, webp) or videos (mp4, webm, mov, mkv)")
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip(".-")[:100] or "upload"
+    return stem + suffix
+
+
+def save_upload(name: str, length: int, stream) -> dict:
+    """Stream an uploaded picture/video into captures/library/ without overwriting anything."""
+    if length <= 0:
+        raise ValueError("empty upload")
+    if length > MAX_UPLOAD:
+        raise ValueError("uploads are limited to 4 GiB")
+    fname = safe_upload_name(name)
+    folder = CAPTURE_DIR / LIBRARY
+    folder.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".upload-")
+    try:
+        remaining = length
+        with os.fdopen(fd, "wb") as out:
+            while remaining:
+                chunk = stream.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise ValueError("upload interrupted")
+                out.write(chunk)
+                remaining -= len(chunk)
+        stem, suffix = os.path.splitext(fname)
+        for n in range(1000):
+            dst = folder / (fname if n == 0 else f"{stem}-{n}{suffix}")
+            try:
+                os.link(tmp, dst)  # atomic, fails if the name exists: never overwrite
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise ValueError("too many files with this name")
+    finally:
+        os.unlink(tmp)
+    return {"message": f"Uploaded {dst.name}", "file": dst.name}
+
+
+# ---------------------------------------------------------------- Loft menu (shared with the Loft's library.c)
+LOFT_MENU = Path(os.environ.get("XR_LOFT_MENU") or Path.home() / ".config/xr-loft/menu.tsv")
+MENU_TYPES = ("builtin", "apk", "pc")
+LOFT_BUILTINS = ("pictures", "videos", "checkerboard", "colors", "motion")
+DEFAULT_MENU = [
+    {"enabled": True, "type": "builtin", "id": "pictures", "title": "Pictures", "subtitle": "Photos and captures", "target": "pictures"},
+    {"enabled": True, "type": "builtin", "id": "videos", "title": "Videos", "subtitle": "Uploaded and recorded videos", "target": "videos"},
+    {"enabled": False, "type": "builtin", "id": "checkerboard", "title": "Checkerboard", "subtitle": "Red / blue per eye", "target": "checkerboard"},
+    {"enabled": False, "type": "builtin", "id": "colors", "title": "Color test", "subtitle": "Solid colour cycle", "target": "colors"},
+    {"enabled": False, "type": "builtin", "id": "motion", "title": "Motion test", "subtitle": "Smoothness and latency", "target": "motion"},
+]
+MENU_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+PACKAGE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
+
+
+def load_menu() -> list[dict]:
+    if not LOFT_MENU.is_file():
+        return [dict(e) for e in DEFAULT_MENU]
+    items = []
+    for line in LOFT_MENU.read_text().splitlines():
+        if not line or line.startswith("#"):
+            continue
+        f = line.split("\t")
+        if len(f) >= 6 and f[1] in MENU_TYPES:
+            items.append({"enabled": f[0] == "1", "type": f[1], "id": f[2], "title": f[3], "subtitle": f[4],
+                          "target": "\t".join(f[5:])})
+    return items
+
+
+def save_menu(items: list) -> dict:
+    if not isinstance(items, list) or len(items) > 16:
+        raise ValueError("the menu holds at most 16 entries")
+    seen, lines = set(), ["# Intel XR Loft menu: enabled<TAB>type<TAB>id<TAB>title<TAB>subtitle<TAB>target",
+                          "# Written by the XR Control Panel; the Loft re-reads it on the \"reload\" command."]
+    for it in items:
+        kind, ident = str(it.get("type", "")), str(it.get("id", ""))
+        title, subtitle, target = (str(it.get(k, "")).strip() for k in ("title", "subtitle", "target"))
+        if kind not in MENU_TYPES or not MENU_ID_RE.match(ident) or ident in seen:
+            raise ValueError(f"invalid or duplicate menu id {ident!r}")
+        if not title or any(c in "\t\n\r" for c in title + subtitle + target) or len(title) > 40 or len(subtitle) > 70:
+            raise ValueError(f"invalid title or subtitle for {ident!r}")
+        if kind == "builtin" and target not in LOFT_BUILTINS:
+            raise ValueError(f"unknown built-in app {target!r}")
+        if kind == "apk" and not PACKAGE_RE.match(target):
+            raise ValueError(f"invalid Android package name {target!r}")
+        if kind == "pc":
+            exe = Path(target).expanduser()
+            if not exe.is_absolute() or not exe.is_file() or not os.access(exe, os.X_OK):
+                raise ValueError(f"PC mini-game must be an executable file (absolute path): {target!r}")
+        seen.add(ident)
+        lines.append("\t".join(["1" if it.get("enabled") else "0", kind, ident, title, subtitle, target]))
+    LOFT_MENU.parent.mkdir(parents=True, exist_ok=True)
+    tmp = LOFT_MENU.with_suffix(".tmp")
+    tmp.write_text("\n".join(lines) + "\n")
+    os.replace(tmp, LOFT_MENU)
+    reloaded = False
+    if subprocess.run(["pgrep", "-x", "intel_xr_loft"], capture_output=True).stdout:
+        loft_command("reload")
+        reloaded = True
+    return {"message": "Menu saved" + ("; the Loft reloaded it" if reloaded else "")}
+
+
+def headset_packages(serial: str) -> list[str]:
+    require_headset(serial)
+    out = adb("-s", serial, "shell", "pm", "list", "packages", "-3").stdout
+    return sorted(p[8:] for p in out.split() if p.startswith("package:") and PACKAGE_RE.match(p[8:]))
 
 
 # ---------------------------------------------------------------- runtime features
@@ -376,11 +493,14 @@ def run_runtime(script: str, *args: str, background: bool = False, log: str | No
 # ---------------------------------------------------------------- Loft (github.com/JLATORRE89/loft)
 LOFT_DIR = Path(os.environ.get("XR_LOFT_CONTROL_DIR") or
                 Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "xr-loft")
-LOFT_COMMANDS = {"lobby", "checkerboard", "colors", "motion", "pictures", "next", "prev", "exit"}
+LOFT_COMMANDS = {"lobby", "next", "prev", "exit", "reload", "pause"}  # plus open:<menu id>
 
 
 def loft_command(cmd: str) -> dict:
-    if cmd not in LOFT_COMMANDS:
+    if cmd.startswith("open:"):
+        if not any(it["enabled"] and it["id"] == cmd[5:] for it in load_menu()):
+            raise ValueError(f"{cmd[5:]!r} is not an enabled Loft menu entry")
+    elif cmd not in LOFT_COMMANDS:
         raise ValueError(f"unknown Loft command {cmd!r}")
     if not subprocess.run(["pgrep", "-x", "intel_xr_loft"], capture_output=True).stdout:
         raise RuntimeError("the Loft is not running (start it first)")
@@ -453,12 +573,17 @@ class Handler(BaseHTTPRequestHandler):
                 f = CAPTURE_DIR / parts[0] / parts[1]
                 if not f.is_file():
                     return self.json({"error": "not found"}, 404)
-                ctype = "video/mp4" if f.suffix == ".mp4" else "image/png" if f.suffix == ".png" else "image/jpeg"
+                ctype = CONTENT_TYPES.get(f.suffix.lower(), "application/octet-stream")
                 return self.send(200, f.read_bytes(), ctype, cache=True)
             if path == "/api/config":
                 return self.json({"values": config_values(), "types": {k: t.__name__ for k, t in EDITABLE.items()}})
             if path == "/api/clients":
                 return self.json(alvr_clients())
+            if path == "/api/loft/menu":
+                return self.json({"items": load_menu(), "builtins": LOFT_BUILTINS})
+            m = re.match(r"^/api/headsets/([^/]+)/packages$", path)
+            if m:
+                return self.json({"packages": headset_packages(unquote(m.group(1)))})
             if path == "/api/gpu/status":
                 return self.json(gpu_worker.status())
             if path == "/api/gpu/workflows":
@@ -491,9 +616,14 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("app must be checkerboard or loft")
                     args.append(app)
                 return self.json({"message": run_runtime("xr-app.sh", *args)})
-            m = re.match(r"^/api/loft/([a-z]+)$", path)
+            if path == "/api/loft/menu":
+                return self.json(save_menu(json.loads(self.body()).get("items")))
+            m = re.match(r"^/api/loft/([a-z]+(?::[a-z0-9_-]{1,40})?)$", path)
             if m:
                 return self.json(loft_command(m.group(1)))
+            if path == "/api/library/upload":
+                return self.json(save_upload(unquote(self.headers.get("X-Filename", "")),
+                                             int(self.headers.get("Content-Length", "0") or 0), self.rfile), 201)
             if path == "/api/captures/delete":
                 req = json.loads(self.body())
                 return self.json(delete_capture(str(req.get("headset", "")), str(req.get("file", "")),

@@ -38,10 +38,11 @@
 
   <section id="tab-captures" class="tab" role="tabpanel" hidden>
     <div class="section-head row">
-      <div><h1>Captures</h1><p class="muted">Screenshots and recordings, stored per headset on this PC.</p></div>
+      <div><h1>Captures</h1><p class="muted">Screenshots, recordings and uploads, stored on this PC. The Loft's Pictures and Videos show them.</p></div>
       <div class="row">
         <label class="field compact"><span>Headset</span><select id="captureFilter"><option value="">All headsets</option></select></label>
         <label class="check"><input type="checkbox" id="deleteOnHeadset"> Also delete from headset</label>
+        <label class="btn primary upload">Upload pictures or videos<input type="file" id="uploadMedia" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime,video/x-matroska,.mkv" hidden></label>
       </div>
     </div>
     <div id="captures" class="gallery"></div>
@@ -62,16 +63,31 @@
     </div>
     <div class="card" data-runtime id="loftCard" hidden>
       <div class="row"><h2>Loft</h2><span id="loftMode" class="badge accent"></span></div>
-      <p class="muted">Switch the Loft's mini app for the wearer (they can also pick by looking at a tile for 1.5 s).</p>
+      <p class="muted">Open a menu item for the wearer (they can also point and pull the trigger, or look at a tile for 5 s).</p>
+      <div class="actions" id="loftButtons"></div>
       <div class="actions">
-        <button class="btn" data-loft="lobby">Lobby</button>
-        <button class="btn" data-loft="checkerboard">Checkerboard</button>
-        <button class="btn" data-loft="colors">Color test</button>
-        <button class="btn" data-loft="motion">Motion test</button>
-        <button class="btn" data-loft="pictures">Pictures</button>
-        <button class="btn" data-loft="prev">&lsaquo; Prev picture</button>
-        <button class="btn" data-loft="next">Next picture &rsaquo;</button>
+        <button class="btn" data-loft="prev">&lsaquo; Previous</button>
+        <button class="btn" data-loft="next">Next &rsaquo;</button>
+        <button class="btn" data-loft="pause">Play / pause video</button>
       </div>
+    </div>
+    <div class="card" data-runtime id="loftMenuCard">
+      <h2>Loft menu</h2>
+      <p class="muted">Choose what appears in the Loft's lobby. Add Quest apps (APKs installed on the headset) or PC mini-games (OpenXR programs on this PC).</p>
+      <div id="loftMenuList"></div>
+      <details class="add-entry">
+        <summary>Add a Quest app</summary>
+        <label class="field"><span>Headset</span><select id="apkHeadset"></select></label>
+        <label class="field"><span>Installed app</span><select id="apkPackage"><option value="">Load apps…</option></select></label>
+        <label class="field"><span>Title in the Loft</span><input type="text" id="apkTitle" maxlength="40"></label>
+        <div class="actions"><button class="btn" id="apkLoad">Load apps</button><button class="btn primary" id="apkAdd">Add to menu</button></div>
+      </details>
+      <details class="add-entry">
+        <summary>Add a PC mini-game</summary>
+        <label class="field"><span>Executable (absolute path)</span><input type="text" id="pcPath" placeholder="/opt/games/my-xr-game"></label>
+        <label class="field"><span>Title in the Loft</span><input type="text" id="pcTitle" maxlength="40"></label>
+        <div class="actions"><button class="btn primary" id="pcAdd">Add to menu</button></div>
+      </details>
     </div>
     <div class="card" data-runtime>
       <div class="row"><h2>ALVR connections</h2><span id="autoAccept" class="badge"></span></div>

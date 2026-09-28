@@ -98,5 +98,10 @@
 - Do not commit workstation choices as repo defaults; put them in `config/xr-build.local.json`.
 - Only warnings from project or companion code count against "clean build"; record upstream ones.
 
+## Runtime rebuilds
+- Any Monado build relinks the OpenXR client library with the new git tag; the running service
+  then rejects new apps (`ipc_client_check_git_tag`). Restart the service after building, before
+  launching apps (`scripts/rebuild-runtime.sh` already tells you to).
+
 ## Diagnostic hygiene
 Rate-limit noisy probes. Once a boundary is proven, reduce/remove its temporary logging. Record evidence in `TASKS.md`.

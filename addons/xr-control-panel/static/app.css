@@ -147,3 +147,10 @@ textarea { resize: vertical; }
 .job { padding: 12px 0; border-top: 1px solid var(--line); display: grid; gap: 4px; }
 .job:first-child { border-top: 0; }
 .danger-text { color: var(--danger); }
+
+/* Loft menu + uploads */
+.menu-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.menu-row:first-child { border-top: 0; }
+.add-entry { margin-top: 12px; }
+.add-entry summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.upload { cursor: pointer; }

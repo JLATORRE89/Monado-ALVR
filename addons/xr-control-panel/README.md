@@ -90,3 +90,14 @@ on this PC's GPU.
   downloads outputs once, **Retry submission** resends with the same request ID after a lost
   response. Outputs are downloaded only through the API's asset path and never overwrite files.
 - Job history: `~/.local/share/xr-control-panel/gpu-worker/jobs.json` (0600).
+
+## Loft menu and uploads
+
+- **Streaming → Loft:** buttons for Lobby and each enabled Loft menu entry (`open:<id>`), plus
+  Previous / Next / Play-pause for Pictures and Videos.
+- **Streaming → Loft menu:** enable/disable entries, remove added ones, add a **Quest app** (pick
+  from the headset's installed apps) or a **PC mini-game** (absolute path of an executable). Saved
+  to `~/.config/xr-loft/menu.tsv`; a running Loft reloads it immediately.
+- **Captures → Upload pictures or videos:** jpg, png, webp, mp4, webm, mov, mkv (up to 4 GiB),
+  stored in `captures/library/` (names sanitised, never overwritten); the Loft's Pictures and
+  Videos apps show them.
