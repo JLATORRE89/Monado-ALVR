@@ -183,11 +183,11 @@
     <div class="section-head"><h1>Settings</h1><p class="muted">Runtime build and network settings (<code>config/xr-build.json</code>).</p></div>
     <div class="card">
       <h2>Panel access</h2>
-      <p class="muted">Use this panel from a headset's browser over Wi-Fi (for example to send jobs to the GPU worker). Paired devices only: connect the headset by USB and use <b>Pair headset for Wi-Fi</b> on the Headsets tab. The panel has no password, so use this only on a trusted network.</p>
-      <label class="switch"><input type="checkbox" id="lanAccess"> Wi-Fi access for paired headsets</label>
+      <p class="muted">Use this panel from a Quest or supported tablet over Wi-Fi. Connect once by USB and allow this PC's debugging prompt. With automatic authorization enabled below, the device pairs without a separate pairing step.</p>
+      <label class="switch"><input type="checkbox" id="lanAccess"> Wi-Fi access for paired devices</label>
       <p class="muted" id="lanState"></p>
-      <label class="switch"><input type="checkbox" id="autoAuthorizeUsb"> Automatically authorize USB-connected headsets</label>
-      <p class="muted">With Wi-Fi access on, connect a headset once by USB and allow USB debugging. Its browser opens the pairing page automatically. After pairing, it can use this panel over Wi-Fi without the cable. The headset must already be on Wi-Fi.</p>
+      <label class="switch"><input type="checkbox" id="autoAuthorizeUsb"> Automatically pair USB-connected headsets and tablets</label>
+      <p class="muted">One setting covers Quest headsets and the Galaxy Tab A9+ (SM-X210). With Wi-Fi access on, its browser opens the pairing page automatically after USB authorization. Keep the device on the same local network as this PC; once paired, you can unplug USB and use the panel over Wi-Fi.</p>
       <p class="muted">Turning this off stops new automatic pairings. Revoke paired devices to remove existing access; revoked devices need manual pairing.</p>
       <div id="usbPairingDevices" aria-live="polite"></div>
       <div class="actions"><button class="btn danger" id="revokePairing" data-confirm="Revoke all paired devices? They must be paired again.">Revoke paired devices</button></div>

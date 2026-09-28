@@ -23,6 +23,11 @@ class TabletPairing(unittest.TestCase):
    info=dict(device,is_tablet=True,is_quest=False,client_installed=True,ip='192.0.2.20')
    with patch.object(server,'list_adb_devices',return_value=[device]),patch.object(server,'headset_info',return_value=info),patch.object(server,'issue_usb_pairing') as issue,patch.object(server,'trust_usb_headset_streaming') as trust:
     server.auto_pair_usb_once();issue.assert_called_once_with(info);trust.assert_not_called()
-    issue.reset_mock();device['usb_path']=None;server.auto_pair_usb_once();issue.assert_not_called()
+    issue.reset_mock();server.CFG['auto_authorize_usb']=False
+    server.auto_pair_usb_once();issue.assert_not_called()
+    server.CFG['auto_authorize_usb']=True;server.CFG['lan_access']=False
+    server.auto_pair_usb_once();issue.assert_not_called()
+    server.CFG['lan_access']=True;device['usb_path']=None
+    server.auto_pair_usb_once();issue.assert_not_called()
   finally:case.tearDown()
 if __name__=='__main__':unittest.main()
