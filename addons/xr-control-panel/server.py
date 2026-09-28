@@ -1263,7 +1263,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "max-age=300" if cache else "no-store")
+        # Static files revalidate on every load so panel updates show at once (headset browsers too).
+        self.send_header("Cache-Control", "no-cache" if cache else "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)

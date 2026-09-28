@@ -98,7 +98,7 @@ main { padding: 20px 16px calc(64px + env(safe-area-inset-bottom)); max-width: 1
 .field { display: grid; gap: 6px; margin: 8px 0; }
 .field > span { font-size: .85rem; font-weight: 600; color: var(--muted); }
 .field.compact { min-width: 220px; }
-input[type=text], input[type=number], input[type=password], textarea, select { width: 100%; min-height: 52px; padding: 10px 14px; border-radius: 12px;
+input:not([type]), input[type=text], input[type=url], input[type=search], input[type=number], input[type=password], textarea, select { width: 100%; min-height: 52px; padding: 10px 14px; border-radius: 12px;
   border: 1px solid var(--line); background: var(--surface); color: var(--text); font: 1rem var(--font); }
 .switch { display: flex; align-items: center; gap: 12px; min-height: 52px; font-weight: 600; }
 .switch input { width: 24px; height: 24px; accent-color: var(--accent); }
@@ -151,8 +151,21 @@ textarea { resize: vertical; }
 /* Loft menu + uploads */
 .menu-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
 .menu-row:first-child { border-top: 0; }
-.add-entry { margin-top: 12px; }
-.add-entry summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.add-entry { margin-top: 12px; padding: 4px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.add-entry[open] { padding-bottom: 16px; }
+.add-entry summary { cursor: pointer; font-weight: 600; min-height: 52px; display: flex; align-items: center; gap: 10px; list-style: none; }
+.add-entry summary::-webkit-details-marker { display: none; }
+.add-entry summary::before { content: ""; width: 8px; height: 8px; flex: none; border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .15s; margin-right: 4px; }
+.add-entry[open] summary::before { transform: rotate(45deg); }
+.add-entry > p { color: var(--muted); }
+.add-entry .actions { margin-top: 12px; }
+.add-entry input, .add-entry select { background: var(--surface); }
+a.btn { text-decoration: none; }
+input[type=file] { width: 100%; min-height: 52px; padding: 8px; border: 1px dashed var(--line); border-radius: 12px;
+  background: var(--surface); color: var(--muted); font: 1rem var(--font); }
+input[type=file]::file-selector-button { min-height: 36px; margin-right: 12px; padding: 6px 14px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font: 600 .95rem var(--font); cursor: pointer; }
 .upload { cursor: pointer; }
 /* Captures: the controls row spans the page; the upload button sits at its far right. */
 .capture-tools { flex: 1 1 100%; justify-content: flex-start; align-items: center; }

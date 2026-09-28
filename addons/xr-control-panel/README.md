@@ -194,7 +194,7 @@ installation acceptance requires a compatible official package and a controlled 
 
 References: [Android ADB install](https://developer.android.com/tools/adb),
 [Android OTA preconditions](https://source.android.com/docs/core/ota/tools),
-[Meta software update tool](https://www.meta.com/help/quest/software_update/).
+[Meta software update tool](https://www.meta.com/help/quest/software_update/) (WebUSB: Chrome, Edge or another Chromium browser; not Firefox or Safari).
 
 ### XR Downloader bundles
 

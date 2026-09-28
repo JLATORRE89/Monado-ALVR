@@ -43,7 +43,7 @@
         <div id="updateSources"></div>
       </details>
       <label class="field"><span>XR Downloader bundle (.tar.gz)</span><input id="bundleFile" type="file" accept=".gz,.tgz"></label>
-      <button class="btn primary" id="bundleImport">Import offline bundle</button>
+      <div class="actions"><button class="btn primary" id="bundleImport">Import offline bundle</button></div>
       <p>Store Quest app and system updates here, then install them without internet access. Files stay on this PC for reuse or download to another offline panel.</p>
       <label class="field"><span>Update type</span><select id="updateKind"><option value="apk">Quest app (.apk)</option><option value="firmware">Quest system firmware (.zip)</option></select></label>
       <label class="field"><span>Expected SHA-256 (optional, from your trusted source)</span><input id="updateHash" maxlength="64" placeholder="64-character file checksum"></label>
@@ -55,11 +55,11 @@
       <h2>Install a stored update</h2>
       <label class="field"><span>Headset</span><select id="updateHeadset"></select></label>
       <p class="muted">App updates preserve app data and need an authorized ADB connection. Android checks app signatures and version rules. Standalone APK files are supported.</p>
-      <details><summary>Quest system firmware</summary>
+      <details class="add-entry"><summary>Quest system firmware</summary>
         <p>Use an official, unmodified Meta OTA package for your headset. Connect USB while the headset is running normally, then choose Check firmware compatibility. Charge to at least 50%.</p>
         <p>After the check, power off the headset, hold Power + Volume Down, and select Sideload update. Refresh this list and select the same headset in sideload mode. Then choose Install stored update. Keep USB connected until recovery finishes. Boot normally and choose Verify installed version.</p>
         <p>The panel checks OTA model/build metadata and file integrity. The headset recovery verifies the firmware signature. A matching checksum alone does not establish that a file came from Meta. Packages that wipe data or downgrade firmware are rejected.</p>
-        <p><a href="https://www.meta.com/help/quest/software_update/" target="_blank" rel="noopener">Meta’s online software update tool</a> is also available when internet access is available.</p>
+        <p><a href="https://www.meta.com/help/quest/software_update/" target="_blank" rel="noopener">Meta’s online software update tool</a> is also available with internet access. It uses WebUSB, so open it in Chrome, Edge or another Chromium browser on a PC (not Firefox or Safari), signed in to meta.com.</p>
       </details>
       <p id="updatePreparation" role="status"></p>
       <div id="updateLibrary"></div>
