@@ -1,3 +1,12 @@
+> **W15 several headsets + voice (2026-09-27 ~20:30):** implemented, see `docs/multi-headset.md`.
+> ALVR fork 2d4cba1d (port offset, serial pin, instance audio names; server core built, target ==
+> deployed sha256 2a177877...), companion step 11 `apply-alvr-render-instance.py` (reconstruction
+> re-audited: identical, tree e01f7b36 == alvr_render 0f89e4f), `scripts/xr-instance.sh`,
+> `systemd/intel-xr-monado@.service`, `scripts/xr-voice.sh` + `intel-xr-voice.service`, Loft
+> presence. Verified: two runtimes side by side (APIs 8082/8091, separate IPC, test instance left
+> the first headset's USB forwards alone), two Lofts see each other, voice links with fake nodes.
+> Not yet verified: two real headsets, real ALVR audio nodes.
+
 > **Release v0.1.0-beta (2026-09-27):** Monado-ALVR `main` = merge c066ca309 of `xr-cleanup` (tree
 > identical to the verified branch); tags `v0.1.0-beta` on Monado-ALVR, loft (28d5d1a) and the ALVR
 > fork (830a55bb). The ALVR fork was NOT merged into its `master`: a trial merge (temporary worktree,

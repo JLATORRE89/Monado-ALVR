@@ -1,0 +1,12 @@
+[Unit]
+Description=Intel XR voice chat between headsets (links ALVR microphones to the other headsets)
+After=pipewire.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/bash /ai/intel-xr-prototype/src/Monado-ALVR/scripts/xr-voice.sh watch
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

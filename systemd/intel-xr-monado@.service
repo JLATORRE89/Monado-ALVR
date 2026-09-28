@@ -1,0 +1,23 @@
+[Unit]
+Description=Intel XR Monado-ALVR runtime instance %i (one per headset)
+StartLimitIntervalSec=60
+StartLimitBurst=3
+After=graphical-session.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+StandardInput=null
+Environment=XRT_LOG=info
+Environment=XRT_NO_STDIN=true
+Environment=PATH=/ai/android-sdk/platform-tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Per-instance settings written by scripts/xr-instance.sh: its own IPC/runtime directory
+# (XDG_RUNTIME_DIR), ALVR config and log directories, headset serial, port offset, audio names.
+EnvironmentFile=%h/.config/intel-xr/instances/%i.env
+ExecStartPre=/usr/bin/mkdir -p -m 0700 ${XDG_RUNTIME_DIR} ${ALVR_LOG_DIR}
+ExecStart=/ai/intel-xr-prototype/build/monado-alvr/src/xrt/targets/service/monado-service
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
