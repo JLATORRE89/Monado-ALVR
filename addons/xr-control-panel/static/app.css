@@ -180,8 +180,8 @@ input[type=file]::file-selector-button { min-height: 36px; margin-right: 12px; p
 .capture-tools { flex: 1 1 100%; justify-content: flex-start; align-items: center; }
 .capture-tools .upload { margin-left: auto; }
 
-/* One full-width item per headset. Status and network details have separate rows. */
-#headsets { grid-template-columns: minmax(0, 1fr); }
+/* Shared headset/tablet layout: one full-width device with separate status/network rows. */
+.device-grid { grid-template-columns: minmax(0, 1fr); }
 .headset-card { min-width: 0; }
 .headset-card .headset-head { flex-wrap: wrap; }
 .headset-card .headset-head > div { min-width: 0; }

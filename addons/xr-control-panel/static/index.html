@@ -107,15 +107,18 @@
     <div class="card"><h2>Update history</h2><div id="updateJobs" aria-live="polite"></div></div>
   </section>
   <section id="tab-tablets" class="tab" role="tabpanel" hidden>
-    <div class="section-head"><h1>Tablets</h1><p class="muted">Tablet access, updates and assistant controls. Connect by USB and authorize this PC to begin.</p></div>
-    <div id="tablets" class="grid"></div>
+    <div class="section-head">
+      <h1>Tablets</h1>
+      <p class="muted">Android tablets connected by USB or Wi-Fi. Manage each device using its card below.</p>
+    </div>
+    <div id="tablets" class="grid device-grid"></div>
   </section>
   <section id="tab-headsets" class="tab" role="tabpanel">
     <div class="section-head">
       <h1>Headsets</h1>
       <p class="muted">Quest headsets connected over ADB (USB, or ADB over Wi‑Fi). Captures show what the wearer sees in any app.</p>
     </div>
-    <div id="headsets" class="grid"></div>
+    <div id="headsets" class="grid device-grid"></div>
   </section>
 
   <section id="tab-captures" class="tab" role="tabpanel" hidden>
