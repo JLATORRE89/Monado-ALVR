@@ -604,6 +604,81 @@ $("#updateUpload").addEventListener("click", e => run(e.currentTarget, async () 
   $("#updateFile").value = ""; await loadUpdates(); return result;
 }));
 setInterval(() => { if (!$("#tab-updates").hidden) loadUpdates(); }, 5000);
+// Other panels: pull their stored updates (share key + pinned HTTPS certificate), or share ours.
+const peerUpdates = new Map(); // peer id -> remote update rows currently shown
+async function showPeerUpdates(peer, button) {
+  return run(button, async () => {
+    const { updates } = await api(`/api/peers/${peer.id}/updates`);
+    peerUpdates.set(peer.id, updates); renderPeers(lastPeers);
+    if (!updates.length) return { message: `${peer.label} has no stored updates` };
+  });
+}
+let lastPeers = null;
+function renderPeers(data) {
+  if (!data) return;
+  lastPeers = data;
+  $("#peerList").replaceChildren(...data.peers.map(peer => {
+    const rows = peerUpdates.get(peer.id);
+    return el("article", { class: "update-item" },
+      el("h3", {}, peer.label), el("p", { class: "muted" }, `${peer.address} · certificate ${peer.fingerprint.slice(0, 23)}…`),
+      el("div", { class: "actions" },
+        el("button", { class: "btn", onclick: e => showPeerUpdates(peer, e.currentTarget) }, rows ? "Refresh its updates" : "Show its updates"),
+        el("button", { class: "btn danger", "data-confirm": `Remove ${peer.label}? Updates already pulled stay here.`, onclick: e => run(e.currentTarget, async () => {
+          const r = await api("/api/peers/remove", { method: "POST", json: { id: peer.id } }); peerUpdates.delete(peer.id); await loadPeers(); return r;
+        }) }, "Remove")),
+      ...(rows || []).map(u => el("div", { class: "peer-update" },
+        el("div", {}, el("strong", {}, `${u.label || u.filename} ${u.version || ""}`),
+          el("p", { class: "muted" }, `${u.kind === "apk" ? (u.package || "Quest app") : "Firmware" + (u.models ? " for " + u.models : "")} · ${Math.round(u.size / 1024 / 1024)} MiB`)),
+        u.stored ? el("span", { class: "badge" }, "Stored here")
+          : el("button", { class: "btn primary", onclick: e => run(e.currentTarget, async () => {
+              const r = await api("/api/peers/pull", { method: "POST", json: { id: peer.id, sha256: u.sha256 } }); await loadPeers(); return r;
+            }) }, "Pull"))));
+  }));
+  $("#peerPulls").replaceChildren(...data.pulls.map(j => el("p", { class: "muted" },
+    `${j.state === "running" ? "⏳" : j.state === "done" ? "✓" : "✗"} ${j.filename} from ${j.from}: ${j.message}`)));
+  if (data.fingerprint) {
+    const addrs = (data.addresses.length ? data.addresses : [location.hostname]).map(a => `${a}:${data.https_port}`);
+    $("#shareInfo").replaceChildren(
+      "On the other panel, add this one at ", el("strong", {}, addrs.join(" or ")),
+      " with a share key created below. It should show this certificate fingerprint:",
+      el("code", { class: "share-key" }, data.fingerprint),
+      "Give each panel its own key; revoke a key to stop that panel's access.");
+  } else {
+    $("#shareInfo").textContent = "Turn on Wi-Fi access in Settings so this panel serves HTTPS; other panels pull over HTTPS only.";
+  }
+  $("#shareKeys").replaceChildren(...data.keys.map(k => el("div", { class: "update-item" },
+    el("strong", {}, k.label), el("p", { class: "muted" }, k.last_used ? `Last used ${new Date(k.last_used * 1000).toLocaleString()}` : "Not used yet"),
+    el("button", { class: "btn danger", "data-confirm": `Revoke the share key for ${k.label}?`, onclick: e => run(e.currentTarget, async () => {
+      const r = await api("/api/peers/revoke-key", { method: "POST", json: { id: k.id } }); await loadPeers(); return r;
+    }) }, "Revoke"))));
+}
+let pullsRunning = false;
+async function loadPeers() {
+  try {
+    const data = await api("/api/peers");
+    const wasRunning = pullsRunning;
+    pullsRunning = data.pulls.some(j => j.state === "running");
+    if (wasRunning && !pullsRunning) { peerUpdates.clear(); loadUpdates(); } // a pull finished: refresh "Stored here"
+    renderPeers(data);
+  } catch { /* offline for a moment */ }
+}
+$("#peerAdd").addEventListener("click", e => run(e.currentTarget, async () => {
+  const address = $("#peerAddress").value.trim(), key = $("#peerKey").value.trim();
+  if (!address || !key) throw new Error("Enter the other panel's address and a share key created on it");
+  const r = await api("/api/peers/add", { method: "POST", json: { address, key } });
+  $("#peerStatus").textContent = `Added. Certificate fingerprint ${r.fingerprint} — check it matches the one shown on the other panel.`;
+  $("#peerKey").value = ""; await loadPeers(); return r;
+}));
+$("#shareCreate").addEventListener("click", e => run(e.currentTarget, async () => {
+  const r = await api("/api/peers/share-key", { method: "POST", json: { label: $("#shareLabel").value } });
+  const box = $("#shareNew");
+  box.replaceChildren(el("strong", {}, `Share key for ${r.label} (shown once):`), el("p", {}, el("code", { class: "share-key" }, r.key)),
+    el("p", {}, "Enter it on the other panel under Pull updates from another panel, with this panel's address."));
+  box.hidden = false; $("#shareLabel").value = ""; await loadPeers();
+  return { message: "Share key created" };
+}));
+setInterval(() => { if (!$("#tab-updates").hidden) loadPeers(); }, 3000);
+
 
 $("#sourceSave").addEventListener("click", e => run(e.currentTarget, async () => {
   const result = await api("/api/updates/source", { method: "POST", json: {

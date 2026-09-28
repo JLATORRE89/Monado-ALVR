@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from usb_pairing import UsbPairing, atomic_json
 from device_identity import DeviceIdentity
 from software_updates import UpdateLibrary
+from update_peers import Peers, ShareKeys, cert_fingerprint_file, pretty, share_listing
 
 import gpu_worker  # noqa: E402  optional add-on: remote shared GPU (Local AI Stack)
 
@@ -1213,6 +1214,9 @@ AAPT = CFG.get("aapt") or shutil.which("aapt2") or next(
      for p in sorted(sdk.glob("build-tools/*/aapt2"), reverse=True) if p.is_file()), None)
 UPDATES = UpdateLibrary(CFG.get("updates_dir", str(Path.home()/".local/share/xr-control-panel/updates")),
                         adb, list_adb_devices, AAPT)
+# Other panels may pull this panel's stored updates with a share key; this panel may pull theirs.
+SHARE_KEYS = ShareKeys(CONFIG_PATH.parent / "update-share-keys.json")
+PEERS = Peers(CONFIG_PATH.parent / "update-peers.json", UPDATES)
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "XRControlPanel/1"
@@ -1278,7 +1282,40 @@ class Handler(BaseHTTPRequestHandler):
     def body(self) -> bytes:
         return self.rfile.read(int(self.headers.get("Content-Length", "0") or 0))
 
+    def send_update_file(self, sha: str):
+        file = UPDATES.file(sha)
+        with file.open("rb") as stream:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(file.stat().st_size))
+            self.send_header("Content-Disposition", f'attachment; filename="{sha}{file.suffix}"')
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            shutil.copyfileobj(stream, self.wfile, 1024*1024)
+
+    def serve_share(self, path: str):
+        """Read-only access for another panel holding a share key (see update_peers.py)."""
+        client = ipaddress.ip_address(self.client_address[0])
+        client = client.ipv4_mapped if isinstance(client, ipaddress.IPv6Address) and client.ipv4_mapped else client
+        if not isinstance(self.connection, ssl.SSLSocket) and not client.is_loopback:
+            return self.json({"error": "Use the panel's HTTPS address to pull updates"}, 403)
+        auth = self.headers.get("Authorization", "")
+        if not auth.startswith("Bearer ") or not SHARE_KEYS.check(auth[7:].strip()):
+            return self.json({"error": "A valid share key is required"}, 401)
+        if path == "/api/share/updates":
+            return self.json({"updates": share_listing(UPDATES.listing())})
+        m = re.fullmatch(r"/api/share/updates/([a-f0-9]{64})/download", path)
+        if m:
+            try:
+                return self.send_update_file(m.group(1))
+            except ValueError:
+                return self.json({"error": "not found"}, 404)
+        return self.json({"error": "not found"}, 404)
+
     def do_GET(self):
+        share_path = urlparse(self.path).path
+        if share_path.startswith("/api/share/"):
+            return self.serve_share(share_path)
         if not self.authorized():
             return
         url = urlparse(self.path)
@@ -1340,16 +1377,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json(UPDATES.listing())
             m = re.fullmatch(r"/api/updates/([a-f0-9]{64})/download", path)
             if m:
-                file = UPDATES.file(m.group(1))
-                with file.open("rb") as stream:
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/octet-stream")
-                    self.send_header("Content-Length", str(file.stat().st_size))
-                    self.send_header("Content-Disposition", f'attachment; filename="{m.group(1)}{file.suffix}"')
-                    self.send_header("Cache-Control", "no-store")
-                    self.end_headers()
-                    shutil.copyfileobj(stream, self.wfile, 1024*1024)
-                return
+                return self.send_update_file(m.group(1))
+            if path == "/api/peers":
+                cert = TLS_DIR / "cert.pem"
+                return self.json({"peers": PEERS.public(), "keys": SHARE_KEYS.public(), "pulls": PEERS.pull_jobs(),
+                                  "https_port": HTTPS_PORT[0],
+                                  "addresses": [a for a in lan_addresses() if ":" not in a] if HTTPS_PORT[0] else [],
+                                  "fingerprint": pretty(cert_fingerprint_file(cert)) if HTTPS_PORT[0] and cert.is_file() else None})
+            m = re.fullmatch(r"/api/peers/([a-f0-9]{12})/updates", path)
+            if m:
+                return self.json({"updates": PEERS.remote_updates(m.group(1))})
             if path == "/api/status":
                 return self.json(status())
             if path == "/api/transcodes":
@@ -1433,9 +1470,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.end_headers()
                     shutil.copyfileobj(archive, self.wfile, 1024*1024)
                 return
-            if path.startswith("/api/updates/") and self.headers.get("Origin"):
+            if (path.startswith("/api/updates/") or path.startswith("/api/peers/")) and self.headers.get("Origin"):
                 if urlparse(self.headers["Origin"]).netloc != self.headers.get("Host"):
                     return self.json({"error": "Update actions must originate from this panel"}, 403)
+            if path == "/api/peers/share-key":
+                return self.json(SHARE_KEYS.create(json.loads(self.body()).get("label", "")), 201)
+            if path == "/api/peers/revoke-key":
+                SHARE_KEYS.revoke(str(json.loads(self.body()).get("id", "")))
+                return self.json({"message": "Share key revoked; that panel can no longer pull updates"})
+            if path == "/api/peers/add":
+                req = json.loads(self.body())
+                return self.json(PEERS.add(req.get("address", ""), req.get("key", ""), req.get("label", "")), 201)
+            if path == "/api/peers/remove":
+                PEERS.remove(str(json.loads(self.body()).get("id", "")))
+                return self.json({"message": "Panel removed"})
+            if path == "/api/peers/pull":
+                req = json.loads(self.body())
+                return self.json(PEERS.pull(str(req.get("id", "")), str(req.get("sha256", ""))), 202)
             if path == "/api/updates/import":
                 self.connection.settimeout(120)
                 return self.json(UPDATES.import_bundle(int(self.headers.get("Content-Length", "0") or 0), self.rfile), 201)
@@ -1681,7 +1732,10 @@ class TLSMixin:
         except (ssl.SSLError, OSError):
             return
         request.settimeout(None)
-        super().finish_request(request, client_address)
+        try:
+            super().finish_request(request, client_address)
+        finally:
+            request.close()  # the TLS socket replaced the raw one, which shutdown_request would close
 
 
 class HTTPSServer(TLSMixin, ThreadingHTTPServer):

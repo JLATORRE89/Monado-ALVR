@@ -214,6 +214,24 @@ traversal, missing files and tampered payloads reject the whole import. See the
 Downloader README for the format and Linux/Windows commands. Native Windows runtime
 acceptance remains pending; Linux download → disconnected import has been tested.
 
+### Pulling updates from another panel
+
+Software updates → *Other XR Control Panels* copies stored updates between panels on the network,
+for example from a panel on a PC that has internet access to an offline one.
+
+- On the panel that has the updates: *Let other panels pull from this one* → name the other panel →
+  **Create share key**. The key is shown once; only its hash is stored, and **Revoke** ends that
+  panel's access. The section also shows this panel's HTTPS address(es) and certificate fingerprint.
+- On the panel that wants them: enter that address and the share key → **Add panel**. It pins the
+  other panel's certificate fingerprint (compare it with the one shown there); later connections
+  with a different certificate are refused before the key is sent. **Show its updates** lists them,
+  **Pull** copies one in the background.
+- A share key can only list stored updates and download them (`GET /api/share/updates`,
+  `GET /api/share/updates/<sha256>/download`), only over HTTPS (Wi-Fi access must be on). Pulled
+  files are checked against their SHA-256 and inspected exactly like a manual upload.
+- Share keys: `~/.config/xr-control-panel/update-share-keys.json`; known panels (with their keys):
+  `update-peers.json` (both 0600).
+
 ### Captures and settings defaults
 
 Captures → Export file downloads one original screenshot/recording. Export selected

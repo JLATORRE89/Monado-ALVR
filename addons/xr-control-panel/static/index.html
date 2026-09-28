@@ -67,6 +67,24 @@
       <p id="updateStorageStatus" class="muted" role="status"></p>
     </div>
     <div class="card">
+      <h2>Other XR Control Panels</h2>
+      <p class="muted">Copy stored updates from another panel on your network, for example one on a PC that has internet access. Files are checked by SHA-256 when they arrive.</p>
+      <h3 class="subhead">Pull updates from another panel</h3>
+      <label class="field"><span>Other panel's address</span><input id="peerAddress" placeholder="192.168.1.50 or 192.168.1.50:8483" autocomplete="off"></label>
+      <label class="field"><span>Share key created on that panel</span><input id="peerKey" autocomplete="off" spellcheck="false"></label>
+      <div class="actions"><button class="btn primary" id="peerAdd">Add panel</button></div>
+      <p id="peerStatus" class="muted" role="status"></p>
+      <div id="peerList"></div>
+      <div id="peerPulls" aria-live="polite"></div>
+      <details class="add-entry"><summary>Let other panels pull from this one</summary>
+        <p id="shareInfo"></p>
+        <label class="field"><span>Name for the other panel</span><input id="shareLabel" placeholder="e.g. Office PC" autocomplete="off"></label>
+        <div class="actions"><button class="btn" id="shareCreate">Create share key</button></div>
+        <div id="shareNew" class="steps" hidden></div>
+        <div id="shareKeys"></div>
+      </details>
+    </div>
+    <div class="card">
       <h2>Install a stored update</h2>
       <label class="field"><span>Headset</span><select id="updateHeadset"></select></label>
       <p class="muted">App updates preserve app data and need an authorized ADB connection. Android checks app signatures and version rules. Standalone APK files are supported.</p>
