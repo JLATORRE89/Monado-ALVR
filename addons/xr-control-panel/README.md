@@ -258,3 +258,19 @@ are analyzed locally without recording or upload. Stop, page hide, permission de
 and late permission grants release input tracks. Input signal is not proof of speech
 recognition or model detection. If access is denied, grant Meta Quest Browser and the
 site microphone permission; use USB localhost or HTTPS for a secure browser context.
+
+## USB once, then Wi-Fi (automatic)
+
+A Quest connected by USB (debugging allowed, ALVR client installed) is authorized for Wi-Fi
+automatically, re-checked every 30 s while it stays on USB:
+
+- **Streaming** (`auto_trust_usb_streaming`, default on; works with or without panel Wi-Fi access):
+  it is added to **Approved devices** (factory Wi-Fi MAC as identity, plus the randomized MAC the
+  network sees, serial, model, Wi-Fi IP) and ALVR trusts a client entry `usb-<serial>` whose manual
+  IP is its current Wi-Fi IPv4 address, refreshed on every USB connection. Extra runtime instances
+  pinned to that serial are updated through their own ALVR API.
+- **Panel in the headset browser** (`auto_authorize_usb`, default on; needs Panel access / Wi-Fi
+  access on): a one-time pairing page opens in the headset's browser (see the pairing section).
+
+This does not enable wireless ADB. Remove a device from Approved devices and from the ALVR client
+list (Streaming tab) to withdraw it.

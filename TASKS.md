@@ -1,3 +1,9 @@
+> **USB once -> Wi-Fi (2026-09-28):** panel now also authorizes Wi-Fi *streaming* for Quests seen on
+> USB (approved devices: factory MAC from `dumpsys wifi`; ALVR trusted entry `usb-<serial>` with the
+> current Wi-Fi IP), built into Codex's USB pairing worker; `auto_authorize_usb` (browser pairing)
+> now defaults on; panel Wi-Fi access turned on for this PC. Live: Quest 2 1WMHHA42R81461 approved
+> and trusted at 192.168.86.168. All video files deleted on request (PC and headset VideoShots).
+
 > **ALVR upstream merge (2026-09-27 ~20:50):** branch `intel-xr-master-merge` (d28353c0, pushed to
 > the fork, NOT on master): our branch + 55 upstream commits incl. the new socket layer; our pacing /
 > send-buffer / IDR / wired / multi-instance features ported; server core builds. Before landing:

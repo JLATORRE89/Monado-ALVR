@@ -54,7 +54,10 @@ DEFAULTS = {
     # Wi-Fi access for headset browsers: listen on all interfaces; clients other than this PC
     # (and USB-reversed headsets, which arrive as 127.0.0.1) must be paired (see pairing below).
     "lan_access": False,
-    "auto_authorize_usb": False,
+    # A Quest connected by USB once is authorized for Wi-Fi automatically: its browser is paired with
+    # this panel (needs lan_access) and ALVR trusts it for Wi-Fi streaming at its Wi-Fi address.
+    "auto_authorize_usb": True,
+    "auto_trust_usb_streaming": True,
 }
 
 
@@ -122,9 +125,9 @@ def runtime_config_path() -> Path:
     return root / "src/Monado-ALVR/config/xr-build.json"
 
 
-def alvr(path: str, method: str = "GET", data=None) -> bytes:
+def alvr(path: str, method: str = "GET", data=None, base: str | None = None) -> bytes:
     body = None if data is None else json.dumps(data).encode()
-    req = urllib.request.Request(CFG["alvr_api"] + path, data=body, method=method,
+    req = urllib.request.Request((base or CFG["alvr_api"]) + path, data=body, method=method,
                                  headers={"X-ALVR": "1", "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=3) as r:
         return r.read()
@@ -867,24 +870,93 @@ def issue_usb_pairing(info, manual=False):
             raise
 
 
+_usb_trusted: dict[str, str] = {}   # serial -> "mac|ip" already recorded
+_usb_checked: dict[str, float] = {}  # serial -> last time its details were read
+
+
+def alvr_api_for(serial: str) -> str:
+    """ALVR API of the runtime serving this headset: an extra instance pinned to its serial
+    (scripts/xr-instance.sh), else the default runtime."""
+    inst_dir = Path.home() / ".config/intel-xr/instances"
+    for env in sorted(inst_dir.glob("*.env")) if inst_dir.is_dir() else []:
+        kv = dict(line.split("=", 1) for line in env.read_text().splitlines() if "=" in line)
+        if kv.get("ALVR_WIRED_SERIAL") == serial and kv.get("XR_INSTANCE_INDEX", "").isdigit():
+            return f"http://127.0.0.1:{8090 + int(kv['XR_INSTANCE_INDEX'])}"
+    return CFG["alvr_api"]
+
+
+def trust_usb_headset_streaming(info) -> dict | None:
+    """A Quest seen on USB (physical evidence) becomes an approved device and is trusted by ALVR
+    for Wi-Fi streaming: client entry "usb-<serial>" whose manual IP is its current Wi-Fi IPv4
+    address (refreshed on each USB connection, since DHCP addresses change)."""
+    import approved_devices as registry
+    serial, ip = info["serial"], info.get("ip") or ""
+    # Android hides /sys/class/net/*/address from the shell; the Wi-Fi service reports the factory
+    # MAC (stable identity) and the randomized MAC this network actually sees.
+    out = adb("-s", serial, "shell", "dumpsys", "wifi").stdout
+    factory = re.search(r"wifi_sta_factory_mac_address=([0-9a-fA-F:]{17})", out)
+    randomized = re.search(r"mRandomizedMacAddress: ([0-9a-fA-F:]{17})", out)
+    try:
+        mac = registry.norm(factory.group(1) if factory else "")
+    except ValueError:
+        return None  # Wi-Fi service not ready: try again later
+    key = f"{mac}|{ip}"
+    if _usb_trusted.get(serial) == key:
+        return None
+    path = Path(os.path.expanduser(CFG["approved_registry"]))
+    reg = registry.load_registry(path)
+    entry = next((d for d in reg["devices"] if d["mac_address"] == mac), None)
+    if entry is None:
+        entry = {"mac_address": mac, "name": info.get("model") or serial,
+                 "notes": "added automatically after a USB connection", "enabled": True}
+        reg["devices"].append(entry)
+    entry.update(serial=serial, wifi_ip=ip, last_usb=time.strftime("%Y-%m-%d %H:%M"))
+    if randomized:
+        entry["network_mac"] = registry.norm(randomized.group(1))  # what the Wi-Fi router sees
+    entry.setdefault("source", "usb")
+    reg["devices"].sort(key=lambda d: d["mac_address"])
+    atomic_json(path, reg)
+    status = "approved; no Wi-Fi IPv4 address yet"
+    if ip:
+        base, name = alvr_api_for(serial), f"usb-{serial}"
+        for action in ({"AddIfMissing": {"trusted": True, "manual_ips": [ip]}}, {"SetManualIps": [ip]}, "Trust",
+                       {"SetDisplayName": info.get("model") or serial}):
+            alvr("/api/session/client-connections", "POST", [name, action], base=base)  # raises if not running
+        status = f"ALVR trusts {name} at {ip}"
+    _usb_trusted[serial] = key
+    print(f"[panel] USB headset {serial}: {status}", flush=True)
+    return {"serial": serial, "mac": mac, "ip": ip, "status": status}
+
+
 def auto_pair_usb_once():
-    if not CFG.get("lan_access") or not CFG.get("auto_authorize_usb"):
-        return
     for device in list_adb_devices():
         # Positive USB transport evidence, successful Android debugging authorization,
         # and the Quest system package are all required. Ignore phones, emulators and Wi-Fi ADB.
         if device["state"] != "device" or not device.get("usb_path") or not SERIAL_RE.fullmatch(device["serial"]):
             continue
-        if not USB_PAIRS.needs_pairing(device["serial"]):
+        serial = device["serial"]
+        browser = (CFG.get("lan_access") and CFG.get("auto_authorize_usb") and USB_PAIRS.needs_pairing(serial))
+        streaming = CFG.get("auto_trust_usb_streaming", True)
+        if not browser and not (streaming and time.time() - _usb_checked.get(serial, 0) >= 30):
             continue
+        _usb_checked[serial] = time.time()
         try:
             info = headset_info(device)
-            if info.get("is_quest") and (info.get("ip") or info.get("ipv6")):
-                issue_usb_pairing(info)
         except Exception:
-            # A disconnected/offline headset must not prevent other headsets being paired.
-            # Never log the bearer URL or raw subprocess output.
+            continue  # disconnected/offline: must not block other headsets
+        if not info.get("is_quest"):
             continue
+        if streaming and info.get("client_installed"):
+            try:
+                trust_usb_headset_streaming(info)
+            except Exception:
+                _usb_trusted.pop(serial, None)  # runtime not running yet: retry on a later pass
+        if browser and (info.get("ip") or info.get("ipv6")):
+            try:
+                issue_usb_pairing(info)
+            except Exception:
+                # Never log the bearer URL or raw subprocess output.
+                continue
 
 
 def auto_pair_usb_worker():
