@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Click-through test of the XR Control Panel in headless Chrome (DevTools over pipe).
 
-Exercises every control through the real UI: captures, recording, client launch/close,
+Exercises every control through the real UI: captures (incl. delete), recording, client launch/close,
 test app start/exit/stop-runtime, settings, runtime restart, approved devices, refresh,
 offline check. It stops/starts the runtime and the test app; run it with a headset attached
 and awake. Usage: XR_PANEL_TEST_SERIAL=<adb serial> python3 test_panel.py
@@ -123,6 +123,20 @@ time.sleep(1.5)
 n_q = b.eval("document.querySelectorAll('#captures figure').length")
 record("captures gallery + filter", n_all >= 2 and vids >= 1 and bool(imgs_ok) and n_q == n_all,
        f"all={n_all} videos={vids} images_loaded={bool(imgs_ok)} filtered={n_q}")
+
+# 5b delete a capture (a throwaway file on this PC only; the headset copy option stays off)
+cap_dir = os.path.expanduser(f"~/.local/share/xr-control-panel/captures/{QUEST}")
+dummy = os.path.join(cap_dir, "panel-test-delete.mp4")
+with open(dummy, "wb") as f:
+    f.write(os.urandom(2000))
+os.utime(dummy, (2e9, 2e9))  # newest, so it is listed first
+b.eval("document.getElementById('deleteOnHeadset').checked = false, 1")
+b.eval("document.getElementById('captureFilter').dispatchEvent(new Event('change')), 1")
+fig = ("[...document.querySelectorAll('#captures figure')]"
+       ".find(f => (f.querySelector('video') || {}).src && f.querySelector('video').src.includes('panel-test-delete'))")
+wait(f"!!({fig})", 15)
+msg = click_and_toast(f"[...({fig}).querySelectorAll('button')].find(x => x.textContent === 'Delete')", 20)
+record("delete capture (confirm)", msg.startswith("OK Deleted panel-test-delete.mp4") and not os.path.exists(dummy), msg)
 
 # 6 client close / launch
 tab("headsets")

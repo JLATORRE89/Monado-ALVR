@@ -6,6 +6,8 @@
 #   xr-app.sh stop-all  exit the app and stop the Monado service
 #   xr-app.sh status    print app/runtime state
 # The Loft (github.com/JLATORRE89/loft) is built into $ROOT/build/intel-xr-loft.
+# Several headsets: XR_INSTANCE=<name> xr-app.sh ... acts on that runtime instance (see
+# xr-instance.sh); without it, the default runtime. Apps of other instances are left alone.
 set -Eeuo pipefail
 ROOT="${INTEL_XR_ROOT:-/ai/intel-xr-prototype}"
 MONADO="$ROOT/src/Monado-ALVR"
@@ -14,11 +16,47 @@ LOGDIR="$ROOT/logs"
 APP_COMMS=("intel_xr_checke" "intel_xr_loft")
 LOFT_BIN="$ROOT/build/intel-xr-loft/intel_xr_loft"
 
-app_pids() { for c in "${APP_COMMS[@]}"; do pgrep -x "$c" || true; done; }
+INSTANCE="${XR_INSTANCE:-}"
+if [[ -n "$INSTANCE" ]]; then
+  ENV_FILE="$HOME/.config/intel-xr/instances/$INSTANCE.env"
+  [[ -f "$ENV_FILE" ]] || { echo "Unknown runtime instance: $INSTANCE (see xr-instance.sh list)" >&2; exit 2; }
+  INSTANCE_RUNTIME_DIR="$(sed -n 's/^XDG_RUNTIME_DIR=//p' "$ENV_FILE")"
+  INSTANCE_INDEX="$(sed -n 's/^XR_INSTANCE_INDEX=//p' "$ENV_FILE")"
+fi
+# Lofts of all instances share this folder so their users see each other.
+PRESENCE_DIR="/run/user/$(id -u)/xr-loft-presence"
+
+# Only this instance's apps (their environment carries XR_INSTANCE; empty for the default runtime).
+instance_of() { tr '\0' '\n' < "/proc/$1/environ" 2>/dev/null | sed -n 's/^XR_INSTANCE=//p'; }
+pids_of() {
+  local pid
+  for pid in $(pgrep -x "$1" || true); do
+    [[ "$(instance_of "$pid")" == "$INSTANCE" ]] && echo "$pid"
+  done
+}
+app_pids() { for c in "${APP_COMMS[@]}"; do pids_of "$c"; done; }
 app_name() {
-  if pgrep -x intel_xr_loft >/dev/null; then echo loft
-  elif pgrep -x intel_xr_checke >/dev/null; then echo checkerboard
+  if [[ -n "$(pids_of intel_xr_loft)" ]]; then echo loft
+  elif [[ -n "$(pids_of intel_xr_checke)" ]]; then echo checkerboard
   else echo none; fi
+}
+ensure_runtime() {
+  if [[ -n "$INSTANCE" ]]; then
+    local marker sock="$INSTANCE_RUNTIME_DIR/monado_comp_ipc"
+    marker="$(mktemp)"
+    local was_active=0
+    systemctl --user is-active --quiet "intel-xr-monado@$INSTANCE.service" && was_active=1
+    bash "$MONADO/scripts/xr-instance.sh" start "$INSTANCE" >/dev/null
+    # A newly started Monado needs a moment to create its IPC socket (a stale one from an earlier
+    # run may still be there); apps started before that fail with XR_ERROR_RUNTIME_FAILURE.
+    for _ in $(seq 1 60); do
+      [[ -S "$sock" ]] && { [[ $was_active == 1 ]] || [[ "$sock" -nt "$marker" ]]; } && break
+      sleep 0.5
+    done
+    rm -f "$marker"
+  else
+    bash "$MONADO/scripts/monado-service.sh" ensure >/dev/null
+  fi
 }
 
 stop_app() {
@@ -49,12 +87,16 @@ case "${1:-status}" in
       echo "Loft is not built: $LOFT_BIN (see github.com/JLATORRE89/loft README)" >&2
       exit 1
     fi
-    bash "$MONADO/scripts/monado-service.sh" ensure >/dev/null
+    ensure_runtime
     mkdir -p "$LOGDIR"
-    log="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_xr-app-$want.log"
+    log="$LOGDIR/$(date +%Y-%m-%d_%H-%M-%S)_xr-app-$want${INSTANCE:+-$INSTANCE}.log"
     if [[ "$want" == loft ]]; then
       # Exit from inside the Loft also closes the Quest client (back to Quest Home).
       XR_LOFT_ON_EXIT="${XR_LOFT_ON_EXIT-bash $MONADO/scripts/quest-client-close.sh}" \
+      XR_LOFT_LAUNCH_HOOK="${XR_LOFT_LAUNCH_HOOK-bash $MONADO/scripts/xr-loft-launch.sh}" \
+      XR_INSTANCE="$INSTANCE" XR_INSTANCE_INDEX="${INSTANCE_INDEX:-0}" XR_LOFT_PRESENCE_DIR="$PRESENCE_DIR" \
+      PULSE_SERVER="unix:/run/user/$(id -u)/pulse/native" \
+      XDG_RUNTIME_DIR="${INSTANCE_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}}" \
       XR_RUNTIME_JSON="$ROOT/build/monado-alvr/openxr_monado-dev.json" \
       LD_LIBRARY_PATH="$ROOT/build/openxr-demo/src/loader:${LD_LIBRARY_PATH:-}" \
         setsid nohup "$LOFT_BIN" >"$log" 2>&1 </dev/null &
@@ -73,14 +115,19 @@ case "${1:-status}" in
     ;;
   stop-all)
     stop_app
-    bash "$MONADO/scripts/monado-service.sh" stop
+    if [[ -n "$INSTANCE" ]]; then
+      bash "$MONADO/scripts/xr-instance.sh" stop "$INSTANCE" >/dev/null
+    else
+      bash "$MONADO/scripts/monado-service.sh" stop
+    fi
     echo "Runtime stopped."
     ;;
   status)
     pids="$(app_pids)"
     echo "app=$([[ -n "$pids" ]] && echo running || echo stopped)"
     echo "app_name=$(app_name)"
-    echo "runtime=$(systemctl --user is-active intel-xr-monado.service || true)"
+    unit="intel-xr-monado${INSTANCE:+@$INSTANCE}.service"
+    echo "runtime=$(systemctl --user is-active "$unit" || true)"
     ;;
   *)
     echo "Usage: $0 {start [checkerboard|loft]|stop|stop-all|status}" >&2

@@ -25,6 +25,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gpu_worker  # noqa: E402  optional add-on: remote shared GPU (Local AI Stack)
+
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
 CONFIG_PATH = Path(os.environ.get("XR_PANEL_CONFIG", Path.home() / ".config/xr-control-panel/config.json"))
@@ -57,8 +60,13 @@ QUEST_SHOTS = "/sdcard/Oculus/Screenshots"
 QUEST_VIDEOS = "/sdcard/Oculus/VideoShots"
 CAPTURE_SERVICE = "com.oculus.metacam/.capture.CaptureService"
 SERIAL_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
-FILE_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}\.(jpg|png|mp4)$")
-DIR_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+FILE_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}\.(jpg|jpeg|png|webp|mp4|webm|mov|mkv)$")
+VIDEO_EXTS = {".mp4", ".webm", ".mov", ".mkv"}
+CONTENT_TYPES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp",
+                 ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".mkv": "video/x-matroska"}
+LIBRARY = "library"  # captures/<LIBRARY>/ holds uploaded pictures and videos
+MAX_UPLOAD = 4 * 1024 ** 3
+DIR_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,63}$")  # no leading dot: rejects "." and ".."
 
 # Editable keys of the runtime's config/xr-build.json.
 EDITABLE = {
@@ -268,6 +276,16 @@ def headset_action(serial: str, action: str) -> dict:
     if action == "wake":
         adb("-s", serial, "shell", "input", "keyevent", "KEYCODE_WAKEUP")
         return {"message": "Wake sent"}
+    if action == "panel-in-headset":
+        # Over USB only: the headset's own 127.0.0.1:<port> is forwarded to this panel, so the
+        # panel stays bound to localhost and nothing is exposed on the network.
+        port = int(CFG["port"])
+        res = adb("-s", serial, "reverse", f"tcp:{port}", f"tcp:{port}")
+        if res.returncode != 0:
+            raise RuntimeError(res.stderr.strip() or "adb reverse failed (is the headset on USB?)")
+        adb("-s", serial, "shell", "am", "start", "-a", "android.intent.action.VIEW",
+            "-d", f"http://127.0.0.1:{port}/")
+        return {"message": f"Opened the panel in the headset's browser (http://127.0.0.1:{port}/, over USB)"}
     raise ValueError(f"unknown action {action!r}")
 
 
@@ -282,8 +300,140 @@ def list_captures(headset: str | None) -> list[dict]:
             if FILE_RE.match(f.name):
                 st = f.stat()
                 items.append({"headset": d.name, "file": f.name, "size": st.st_size, "mtime": st.st_mtime,
-                              "type": "video" if f.suffix == ".mp4" else "image"})
+                              "type": "video" if f.suffix.lower() in VIDEO_EXTS else "image"})
     return sorted(items, key=lambda x: x["mtime"], reverse=True)[:200]
+
+
+def delete_capture(headset: str, file: str, on_headset: bool) -> dict:
+    """Delete a capture from this PC and, optionally, the same file on the headset."""
+    if not DIR_RE.match(headset) or not FILE_RE.match(file):
+        raise ValueError("invalid capture name")
+    f = CAPTURE_DIR / headset / file
+    if not f.is_file():
+        raise ValueError("capture not found")
+    f.unlink()
+    message = f"Deleted {file}"
+    if on_headset and headset != LIBRARY:
+        folder = QUEST_VIDEOS if Path(file).suffix.lower() in VIDEO_EXTS else QUEST_SHOTS
+        try:
+            require_headset(headset)
+            res = adb("-s", headset, "shell", "rm", "-f", f"{folder}/{file}")
+            message += " (also on the headset)" if res.returncode == 0 else " (headset copy not removed)"
+        except RuntimeError as e:
+            message += f" (headset copy kept: {e})"
+    return {"message": message}
+
+
+def safe_upload_name(name: str) -> str:
+    base = Path(name).name
+    stem, suffix = os.path.splitext(base)
+    suffix = suffix.lower()
+    if suffix not in CONTENT_TYPES:
+        raise ValueError("upload pictures (jpg, png, webp) or videos (mp4, webm, mov, mkv)")
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip(".-")[:100] or "upload"
+    return stem + suffix
+
+
+def save_upload(name: str, length: int, stream) -> dict:
+    """Stream an uploaded picture/video into captures/library/ without overwriting anything."""
+    if length <= 0:
+        raise ValueError("empty upload")
+    if length > MAX_UPLOAD:
+        raise ValueError("uploads are limited to 4 GiB")
+    fname = safe_upload_name(name)
+    folder = CAPTURE_DIR / LIBRARY
+    folder.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".upload-")
+    try:
+        remaining = length
+        with os.fdopen(fd, "wb") as out:
+            while remaining:
+                chunk = stream.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise ValueError("upload interrupted")
+                out.write(chunk)
+                remaining -= len(chunk)
+        stem, suffix = os.path.splitext(fname)
+        for n in range(1000):
+            dst = folder / (fname if n == 0 else f"{stem}-{n}{suffix}")
+            try:
+                os.link(tmp, dst)  # atomic, fails if the name exists: never overwrite
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise ValueError("too many files with this name")
+    finally:
+        os.unlink(tmp)
+    return {"message": f"Uploaded {dst.name}", "file": dst.name}
+
+
+# ---------------------------------------------------------------- Loft menu (shared with the Loft's library.c)
+LOFT_MENU = Path(os.environ.get("XR_LOFT_MENU") or Path.home() / ".config/xr-loft/menu.tsv")
+MENU_TYPES = ("builtin", "apk", "pc")
+LOFT_BUILTINS = ("pictures", "videos", "checkerboard", "colors", "motion")
+DEFAULT_MENU = [
+    {"enabled": True, "type": "builtin", "id": "pictures", "title": "Pictures", "subtitle": "Photos and captures", "target": "pictures"},
+    {"enabled": True, "type": "builtin", "id": "videos", "title": "Videos", "subtitle": "Uploaded and recorded videos", "target": "videos"},
+    {"enabled": False, "type": "builtin", "id": "checkerboard", "title": "Checkerboard", "subtitle": "Red / blue per eye", "target": "checkerboard"},
+    {"enabled": False, "type": "builtin", "id": "colors", "title": "Color test", "subtitle": "Solid colour cycle", "target": "colors"},
+    {"enabled": False, "type": "builtin", "id": "motion", "title": "Motion test", "subtitle": "Smoothness and latency", "target": "motion"},
+]
+MENU_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+PACKAGE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
+
+
+def load_menu() -> list[dict]:
+    if not LOFT_MENU.is_file():
+        return [dict(e) for e in DEFAULT_MENU]
+    items = []
+    for line in LOFT_MENU.read_text().splitlines():
+        if not line or line.startswith("#"):
+            continue
+        f = line.split("\t")
+        if len(f) >= 6 and f[1] in MENU_TYPES:
+            items.append({"enabled": f[0] == "1", "type": f[1], "id": f[2], "title": f[3], "subtitle": f[4],
+                          "target": "\t".join(f[5:])})
+    return items
+
+
+def save_menu(items: list) -> dict:
+    if not isinstance(items, list) or len(items) > 16:
+        raise ValueError("the menu holds at most 16 entries")
+    seen, lines = set(), ["# Intel XR Loft menu: enabled<TAB>type<TAB>id<TAB>title<TAB>subtitle<TAB>target",
+                          "# Written by the XR Control Panel; the Loft re-reads it on the \"reload\" command."]
+    for it in items:
+        kind, ident = str(it.get("type", "")), str(it.get("id", ""))
+        title, subtitle, target = (str(it.get(k, "")).strip() for k in ("title", "subtitle", "target"))
+        if kind not in MENU_TYPES or not MENU_ID_RE.match(ident) or ident in seen:
+            raise ValueError(f"invalid or duplicate menu id {ident!r}")
+        if not title or any(c in "\t\n\r" for c in title + subtitle + target) or len(title) > 40 or len(subtitle) > 70:
+            raise ValueError(f"invalid title or subtitle for {ident!r}")
+        if kind == "builtin" and target not in LOFT_BUILTINS:
+            raise ValueError(f"unknown built-in app {target!r}")
+        if kind == "apk" and not PACKAGE_RE.match(target):
+            raise ValueError(f"invalid Android package name {target!r}")
+        if kind == "pc":
+            exe = Path(target).expanduser()
+            if not exe.is_absolute() or not exe.is_file() or not os.access(exe, os.X_OK):
+                raise ValueError(f"PC mini-game must be an executable file (absolute path): {target!r}")
+        seen.add(ident)
+        lines.append("\t".join(["1" if it.get("enabled") else "0", kind, ident, title, subtitle, target]))
+    LOFT_MENU.parent.mkdir(parents=True, exist_ok=True)
+    tmp = LOFT_MENU.with_suffix(".tmp")
+    tmp.write_text("\n".join(lines) + "\n")
+    os.replace(tmp, LOFT_MENU)
+    reloaded = False
+    if subprocess.run(["pgrep", "-x", "intel_xr_loft"], capture_output=True).stdout:
+        loft_command("reload")
+        reloaded = True
+    return {"message": "Menu saved" + ("; the Loft reloaded it" if reloaded else "")}
+
+
+def headset_packages(serial: str) -> list[str]:
+    require_headset(serial)
+    out = adb("-s", serial, "shell", "pm", "list", "packages", "-3").stdout
+    return sorted(p[8:] for p in out.split() if p.startswith("package:") and PACKAGE_RE.match(p[8:]))
 
 
 # ---------------------------------------------------------------- runtime features
@@ -353,19 +503,42 @@ def run_runtime(script: str, *args: str, background: bool = False, log: str | No
 # ---------------------------------------------------------------- Loft (github.com/JLATORRE89/loft)
 LOFT_DIR = Path(os.environ.get("XR_LOFT_CONTROL_DIR") or
                 Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "xr-loft")
-LOFT_COMMANDS = {"lobby", "checkerboard", "colors", "motion", "pictures", "next", "prev", "exit"}
+LOFT_COMMANDS = {"lobby", "next", "prev", "exit", "reload", "pause"}  # plus open:<menu id>
 
 
 def loft_command(cmd: str) -> dict:
-    if cmd not in LOFT_COMMANDS:
+    if cmd.startswith("open:"):
+        if not any(it["enabled"] and it["id"] == cmd[5:] for it in load_menu()):
+            raise ValueError(f"{cmd[5:]!r} is not an enabled Loft menu entry")
+    elif cmd not in LOFT_COMMANDS:
         raise ValueError(f"unknown Loft command {cmd!r}")
     if not subprocess.run(["pgrep", "-x", "intel_xr_loft"], capture_output=True).stdout:
         raise RuntimeError("the Loft is not running (start it first)")
-    LOFT_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = LOFT_DIR / "command.tmp"
-    tmp.write_text(cmd + "\n")
-    os.replace(tmp, LOFT_DIR / "command")
-    return {"message": f"Loft: {cmd}"}
+    targets = loft_dirs()
+    for d in targets:  # every headset's Loft sees the same thing
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = d / "command.tmp"
+        tmp.write_text(cmd + "\n")
+        os.replace(tmp, d / "command")
+    return {"message": f"Loft: {cmd}" + (f" (sent to {len(targets)} headsets)" if len(targets) > 1 else "")}
+
+
+def loft_dirs() -> list[Path]:
+    """Control folders of the running Lofts (one per headset / runtime instance), read from each
+    running intel_xr_loft process's environment; the default folder if none can be read."""
+    dirs = []
+    pids = subprocess.run(["pgrep", "-x", "intel_xr_loft"], capture_output=True, text=True).stdout.split()
+    for pid in pids:
+        try:
+            env = dict(kv.split("=", 1) for kv in
+                       Path(f"/proc/{pid}/environ").read_bytes().decode(errors="replace").split("\0") if "=" in kv)
+        except OSError:
+            continue
+        d = Path(env["XR_LOFT_CONTROL_DIR"]) if env.get("XR_LOFT_CONTROL_DIR") else \
+            Path(env.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "xr-loft"
+        if d not in dirs:
+            dirs.append(d)
+    return dirs or [LOFT_DIR]
 
 
 # ---------------------------------------------------------------- approved devices
@@ -430,18 +603,31 @@ class Handler(BaseHTTPRequestHandler):
                 f = CAPTURE_DIR / parts[0] / parts[1]
                 if not f.is_file():
                     return self.json({"error": "not found"}, 404)
-                ctype = "video/mp4" if f.suffix == ".mp4" else "image/png" if f.suffix == ".png" else "image/jpeg"
+                ctype = CONTENT_TYPES.get(f.suffix.lower(), "application/octet-stream")
                 return self.send(200, f.read_bytes(), ctype, cache=True)
             if path == "/api/config":
                 return self.json({"values": config_values(), "types": {k: t.__name__ for k, t in EDITABLE.items()}})
             if path == "/api/clients":
                 return self.json(alvr_clients())
+            if path == "/api/loft/menu":
+                return self.json({"items": load_menu(), "builtins": LOFT_BUILTINS})
+            m = re.match(r"^/api/headsets/([^/]+)/packages$", path)
+            if m:
+                return self.json({"packages": headset_packages(unquote(m.group(1)))})
+            if path == "/api/gpu/status":
+                return self.json(gpu_worker.status())
+            if path == "/api/gpu/workflows":
+                return self.json({"workflows": gpu_worker.workflows()})
+            if path == "/api/gpu/jobs":
+                return self.json({"jobs": gpu_worker.list_jobs()})
             if path == "/api/approved":
                 res = approved_tool("list")
                 if res.returncode != 0:
                     raise RuntimeError(res.stderr.strip())
                 return self.send(200, res.stdout.encode())
             return self.json({"error": "not found"}, 404)
+        except gpu_worker.GpuWorkerError as e:
+            return self.error_json(e, e.status)
         except Exception as e:
             return self.error_json(e)
 
@@ -460,9 +646,41 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("app must be checkerboard or loft")
                     args.append(app)
                 return self.json({"message": run_runtime("xr-app.sh", *args)})
-            m = re.match(r"^/api/loft/([a-z]+)$", path)
+            if path == "/api/loft/menu":
+                return self.json(save_menu(json.loads(self.body()).get("items")))
+            m = re.match(r"^/api/loft/([a-z]+(?::[a-z0-9_-]{1,40})?)$", path)
             if m:
                 return self.json(loft_command(m.group(1)))
+            if path == "/api/library/upload":
+                return self.json(save_upload(unquote(self.headers.get("X-Filename", "")),
+                                             int(self.headers.get("Content-Length", "0") or 0), self.rfile), 201)
+            if path == "/api/captures/delete":
+                req = json.loads(self.body())
+                return self.json(delete_capture(str(req.get("headset", "")), str(req.get("file", "")),
+                                                bool(req.get("on_headset", False))))
+            if path == "/api/gpu/config":
+                req = json.loads(self.body())
+                return self.json({"message": "GPU worker settings saved", **gpu_worker.save_conf(
+                    str(req.get("address", "")), str(req.get("server_name", "")), str(req.get("ca_file", "")),
+                    req.get("key") or None, bool(req.get("clear_key", False)))})
+            if path == "/api/gpu/test":
+                acct = gpu_worker.account()
+                return self.json({"message": "Connected to the GPU worker", "account": acct})
+            if path == "/api/gpu/jobs":
+                req = json.loads(self.body())
+                source, label = None, ""
+                if req.get("headset") or req.get("file"):
+                    h, f = str(req.get("headset", "")), str(req.get("file", ""))
+                    if not DIR_RE.match(h) or not FILE_RE.match(f) or not (CAPTURE_DIR / h / f).is_file():
+                        raise ValueError("capture not found")
+                    source, label = CAPTURE_DIR / h / f, f"{h}/{f}"
+                rec = gpu_worker.submit(str(req.get("workflow", "")), str(req.get("prompt", ""))[:2000], source, label)
+                return self.json({"message": "Job submitted to the shared GPU", "job": rec}, 202)
+            m = re.match(r"^/api/gpu/jobs/([0-9a-f-]{36})/refresh$", path)
+            if m:
+                rec = gpu_worker.refresh(m.group(1), CAPTURE_DIR)
+                note = f"; saved {len(rec['outputs'])} output(s) to Captures" if rec.get("outputs") else ""
+                return self.json({"message": f"Job {rec['status']}{note}", "job": rec})
             if path == "/api/service/restart":
                 run_runtime("monado-service.sh", "restart", background=True)
                 return self.json({"message": "Runtime restart requested"}, 202)
@@ -503,6 +721,8 @@ class Handler(BaseHTTPRequestHandler):
                     raise RuntimeError((res.stderr or res.stdout).strip())
                 return self.json({"message": res.stdout.strip()})
             return self.json({"error": "not found"}, 404)
+        except gpu_worker.GpuWorkerError as e:
+            return self.error_json(e, e.status)
         except (ValueError, KeyError) as e:
             return self.error_json(e, 400)
         except Exception as e:

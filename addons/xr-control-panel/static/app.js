@@ -57,9 +57,10 @@ function showTab(name) {
   for (const s of $$(".tab")) s.hidden = s.id !== `tab-${name}`;
   location.hash = name;
   if (name === "captures") loadCaptures();
-  if (name === "streaming") loadClients();
+  if (name === "streaming") { loadClients(); loadLoftMenu(); refreshApkHeadsets(); }
   if (name === "settings") loadSettings();
   if (name === "devices") loadApproved();
+  if (name === "gpu") loadGpu();
 }
 for (const b of $$(".tabs button")) b.addEventListener("click", () => showTab(b.dataset.tab));
 
@@ -137,7 +138,8 @@ function headsetCard(h) {
     h.client_installed ? (h.client_running
       ? actionButton("Close client", h.serial, "client-close", "btn", { "data-confirm": "Close the ALVR client on this headset?" })
       : actionButton("Launch client", h.serial, "client-launch")) : null,
-    h.awake ? null : actionButton("Wake", h.serial, "wake")));
+    h.awake ? null : actionButton("Wake", h.serial, "wake"),
+    actionButton("Open panel in headset", h.serial, "panel-in-headset")));
   return card;
 }
 let headsetsBusy = false;
@@ -183,7 +185,15 @@ async function loadCaptures() {
       return el("figure", { class: "media" }, media,
         el("figcaption", { class: "meta" },
           el("span", {}, el("strong", {}, knownHeadsets.get(c.headset) || c.headset), el("br"), when),
-          el("a", { href: url, download: c.file }, "Download")));
+          el("span", { class: "actions" },
+            el("a", { href: url, download: c.file }, "Download"),
+            el("button", { class: "btn danger small", "data-confirm": `Delete ${c.file}?`,
+              onclick: e => run(e.currentTarget, async () => {
+                const res = await api("/api/captures/delete", { method: "POST",
+                  json: { headset: c.headset, file: c.file, on_headset: $("#deleteOnHeadset").checked } });
+                loadCaptures();
+                return res;
+              }) }, "Delete"))));
     });
     $("#captures").replaceChildren(...(items.length ? items : [el("div", { class: "card empty" }, "No captures yet.")]));
   } catch (e) {
@@ -318,3 +328,155 @@ window.addEventListener("resize", sizeTopbar);
   setInterval(loadStatus, 5000);
   setInterval(() => { if (!$("#tab-headsets").hidden) loadHeadsets(); }, 5000);
 })();
+
+// ---------------------------------------------------------------- GPU worker (optional add-on)
+async function loadGpu() {
+  try {
+    const s = await api("/api/gpu/status");
+    $("#gpuAddress").value = s.address;
+    $("#gpuServerName").value = s.server_name;
+    $("#gpuCaFile").value = s.ca_file;
+    $("#gpuState").textContent = s.configured ? `Set up for ${s.address}; connection key saved.`
+      : s.address ? "Add a connection key to finish setting up." : "Not set up yet.";
+    const caps = (await api("/api/captures")).captures;
+    $("#gpuSource").replaceChildren(el("option", { value: "" }, "None"),
+      ...caps.filter(c => c.type === "image" || c.type === "video").map(c =>
+        el("option", { value: `${c.headset}/${c.file}` }, `${c.file} (${knownHeadsets.get(c.headset) || c.headset})`)));
+    renderGpuJobs((await api("/api/gpu/jobs")).jobs);
+    if (s.configured && $("#gpuWorkflow").options.length <= 1) loadGpuWorkflows(null);
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+async function loadGpuWorkflows(button) {
+  return run(button, async () => {
+    const wf = (await api("/api/gpu/workflows")).workflows;
+    const ids = Object.keys(wf).sort();
+    $("#gpuWorkflow").replaceChildren(...(ids.length ? ids.map(id => {
+      const refs = wf[id] && wf[id].reference_count;
+      return el("option", { value: id }, refs ? `${id} (needs ${refs} image${refs > 1 ? "s" : ""})` : id);
+    }) : [el("option", { value: "" }, "No workflows offered")]));
+    return { message: `${ids.length} workflow${ids.length === 1 ? "" : "s"} available` };
+  });
+}
+function renderGpuJobs(jobs) {
+  const rows = jobs.map(j => el("div", { class: "job" },
+    el("div", {}, el("strong", {}, j.workflow), " · ", el("span", { class: "muted" }, new Date(j.created * 1000).toLocaleString())),
+    el("div", { class: "muted" }, j.source ? `Source: ${j.source}` : "No source", j.prompt ? ` · “${j.prompt}”` : ""),
+    el("div", {}, "Status: ", el("strong", {}, j.status), j.error ? el("span", { class: "danger-text" }, ` — ${j.error}`) : null),
+    j.outputs && j.outputs.length ? el("div", {}, "Saved to Captures: ",
+      ...j.outputs.map(f => el("a", { href: `/captures/gpu-worker/${encodeURIComponent(f)}`, target: "_blank", rel: "noopener" }, f, " "))) : null,
+    ["complete", "failed", "cancelled"].includes(j.status) && (j.outputs || []).length ? null :
+      el("button", { class: "btn small", onclick: e => run(e.currentTarget, async () => {
+        const res = await api(`/api/gpu/jobs/${j.request_id}/refresh`, { method: "POST" });
+        renderGpuJobs((await api("/api/gpu/jobs")).jobs);
+        return res;
+      }) }, j.job_id ? "Check status" : "Retry submission")));
+  $("#gpuJobs").replaceChildren(...(rows.length ? rows : [el("p", { class: "muted" }, "No jobs yet.")]));
+}
+$("#gpuSave").addEventListener("click", e => run(e.currentTarget, async () => {
+  const res = await api("/api/gpu/config", { method: "POST", json: {
+    address: $("#gpuAddress").value, server_name: $("#gpuServerName").value,
+    ca_file: $("#gpuCaFile").value, key: $("#gpuKey").value } });
+  $("#gpuKey").value = "";
+  loadGpu();
+  return res;
+}));
+$("#gpuForget").addEventListener("click", e => run(e.currentTarget, async () => {
+  const res = await api("/api/gpu/config", { method: "POST", json: {
+    address: $("#gpuAddress").value, server_name: $("#gpuServerName").value,
+    ca_file: $("#gpuCaFile").value, clear_key: true } });
+  loadGpu();
+  return { message: "Connection key removed" };
+}));
+$("#gpuTest").addEventListener("click", e => run(e.currentTarget, () => api("/api/gpu/test", { method: "POST" })));
+$("#gpuLoadWorkflows").addEventListener("click", e => loadGpuWorkflows(e.currentTarget));
+$("#gpuSubmit").addEventListener("click", e => run(e.currentTarget, async () => {
+  const src = $("#gpuSource").value;
+  const [headset, file] = src ? src.split("/") : ["", ""];
+  const res = await api("/api/gpu/jobs", { method: "POST", json: {
+    workflow: $("#gpuWorkflow").value, prompt: $("#gpuPrompt").value, headset, file } });
+  renderGpuJobs((await api("/api/gpu/jobs")).jobs);
+  return res;
+}));
+
+// ---------------------------------------------------------------- Loft menu + media uploads
+let loftMenu = [];
+function slug(s) { return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "app"; }
+async function loadLoftMenu() {
+  try {
+    loftMenu = (await api("/api/loft/menu")).items;
+    renderLoftMenu();
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+function renderLoftMenu() {
+  const kinds = { builtin: "Built in", apk: "Quest app", pc: "PC mini-game" };
+  $("#loftButtons").replaceChildren(el("button", { class: "btn", onclick: e => loftCmd(e.currentTarget, "lobby") }, "Lobby"),
+    ...loftMenu.filter(i => i.enabled).map(i =>
+      el("button", { class: "btn", onclick: e => loftCmd(e.currentTarget, `open:${i.id}`) }, i.title)));
+  $("#loftMenuList").replaceChildren(...loftMenu.map((i, n) => el("div", { class: "menu-row" },
+    el("label", { class: "check" }, el("input", { type: "checkbox", checked: i.enabled || null,
+      onchange: e => { loftMenu[n].enabled = e.target.checked; saveLoftMenu(null); } }), el("strong", {}, i.title)),
+    el("span", { class: "muted" }, `${kinds[i.type]}${i.type === "builtin" ? "" : " · " + i.target}`),
+    i.type === "builtin" ? null : el("button", { class: "btn danger small", "data-confirm": `Remove ${i.title} from the menu?`,
+      onclick: e => run(e.currentTarget, async () => { loftMenu.splice(n, 1); return saveLoftMenu(null); }) }, "Remove"))));
+}
+async function saveLoftMenu(button) {
+  return run(button, async () => {
+    const res = await api("/api/loft/menu", { method: "POST", json: { items: loftMenu } });
+    await loadLoftMenu();
+    return res;
+  });
+}
+function loftCmd(button, cmd) {
+  return run(button, () => api(`/api/loft/${cmd}`, { method: "POST" }));
+}
+function addMenuEntry(button, entry) {
+  let id = slug(entry.title), n = 2;
+  while (loftMenu.some(i => i.id === id)) id = `${slug(entry.title)}-${n++}`;
+  loftMenu.push({ enabled: true, id, subtitle: "", ...entry });
+  return saveLoftMenu(button);
+}
+$("#apkLoad").addEventListener("click", e => run(e.currentTarget, async () => {
+  const serial = $("#apkHeadset").value;
+  if (!serial) throw new Error("connect a headset first");
+  const pk = (await api(`/api/headsets/${encodeURIComponent(serial)}/packages`)).packages;
+  $("#apkPackage").replaceChildren(...pk.map(p => el("option", { value: p }, p)));
+  return { message: `${pk.length} apps on the headset` };
+}));
+$("#apkAdd").addEventListener("click", e => {
+  const pkg = $("#apkPackage").value, title = $("#apkTitle").value.trim() || pkg.split(".").pop();
+  if (!pkg) return toast("load and pick an app first", "error");
+  addMenuEntry(e.currentTarget, { type: "apk", title, subtitle: "Quest app", target: pkg });
+});
+$("#pcAdd").addEventListener("click", e => {
+  const path = $("#pcPath").value.trim(), title = $("#pcTitle").value.trim() || path.split("/").pop();
+  if (!path) return toast("enter the game's executable path", "error");
+  addMenuEntry(e.currentTarget, { type: "pc", title, subtitle: "PC mini-game", target: path });
+});
+function refreshApkHeadsets() {
+  $("#apkHeadset").replaceChildren(...[...knownHeadsets.entries()].map(([id, name]) => el("option", { value: id }, `${name} (${id})`)));
+}
+$("#uploadMedia").addEventListener("change", async e => {
+  const files = [...e.target.files];
+  const label = e.target.closest("label");
+  label.setAttribute("aria-busy", "true");
+  let ok = 0;
+  for (const f of files) {
+    try {
+      const res = await fetch("/api/library/upload", { method: "POST", body: f,
+        headers: { "X-Filename": encodeURIComponent(f.name), "Content-Type": "application/octet-stream" } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(`${f.name}: ${data.error || res.status}`);
+      ok++;
+    } catch (err) {
+      toast(err.message, "error");
+    }
+  }
+  label.removeAttribute("aria-busy");
+  e.target.value = "";
+  if (ok) toast(`Uploaded ${ok} file${ok === 1 ? "" : "s"}; the Loft shows them in Pictures / Videos`);
+  loadCaptures();
+});

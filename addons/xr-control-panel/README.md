@@ -8,7 +8,8 @@ headsets, or remove it — the runtime does not depend on it.
   battery, awake/asleep, Wi‑Fi IP, ALVR client state and matching ALVR connection.
   Per headset: Screenshot, Start/Stop recording (video with audio), Launch/Close client, Wake.
 - **Captures** — screenshots and recordings stored per headset on this PC
-  (`~/.local/share/xr-control-panel/captures/<serial>/`), with viewer and download.
+  (`~/.local/share/xr-control-panel/captures/<serial>/`), with viewer, download and delete
+  (asks first; "Also delete from headset" removes the Quest's copy too when it is connected).
 - **Streaming** *(runtime)* — start/exit the test app, stop the runtime, ALVR connections
   (approve, forget, clear).
 - **Settings** *(runtime)* — edit `config/xr-build.json`, restart, rebuild (incremental,
@@ -68,3 +69,44 @@ headset until it reboots — only do this on a trusted network.
 - Captures use the Quest system capture service (`com.oculus.metacam`); on current Horizon
   OS the recording actions are `START_/STOP_INTERNAL_CAPTURE_TO_DISK`.
 - ALVR streams to one headset at a time; the panel manages many.
+
+## GPU Worker add-on (optional)
+
+The **GPU Worker** tab sends captures to a Local AI Stack shared GPU on another system
+(`gpu_video_api_package`, `/api/v1/gpu-api`) and saves the results to
+`captures/gpu-worker/`, so they show up in Captures and in the Loft's Pictures app. It is for
+offline work (upscaling, generating images or panoramas); live VR frames always render and encode
+on this PC's GPU.
+
+- **Connection:** the remote system's IP address or host name (optional `:port`), HTTPS only.
+  When you use an IP address, enter the **certificate host name** the server's certificate was
+  issued for; the certificate is still fully verified. A custom CA file is optional.
+- **Connection key:** create one in the Local AI Stack account settings with the `render` and
+  `storage` scopes. It is stored only in `~/.config/xr-control-panel/gpu-worker.json` (mode
+  0600) and never sent to the browser. **Remove key** deletes it.
+- **Jobs:** pick a workflow offered by the remote (discovered from the API, never typed in),
+  an optional source capture and a prompt. One-reference workflows receive the capture as the
+  API's `0.png` ZIP bundle. The request ID is saved before submitting; **Check status** polls and
+  downloads outputs once, **Retry submission** resends with the same request ID after a lost
+  response. Outputs are downloaded only through the API's asset path and never overwrite files.
+- Job history: `~/.local/share/xr-control-panel/gpu-worker/jobs.json` (0600).
+
+## Loft menu and uploads
+
+- **Streaming → Loft:** buttons for Lobby and each enabled Loft menu entry (`open:<id>`), plus
+  Previous / Next / Play-pause for Pictures and Videos.
+- **Streaming → Loft menu:** enable/disable entries, remove added ones, add a **Quest app** (pick
+  from the headset's installed apps) or a **PC mini-game** (absolute path of an executable). Saved
+  to `~/.config/xr-loft/menu.tsv`; a running Loft reloads it immediately.
+- **Captures → Upload pictures or videos:** jpg, png, webp, mp4, webm, mov, mkv (up to 4 GiB),
+  stored in `captures/library/` (names sanitised, never overwritten); the Loft's Pictures and
+  Videos apps show them.
+
+## Using the panel from inside the headset
+
+The panel is mobile-first so it works in the Quest's browser. On the **Headsets** tab, **Open
+panel in headset** runs `adb reverse tcp:8083 tcp:8083` (USB) and opens
+`http://127.0.0.1:8083/` in the headset's browser. The panel stays bound to 127.0.0.1; nothing is
+opened to the network. Over Wi-Fi only, run the panel with `"bind": "<LAN address>"` in
+`~/.config/xr-control-panel/config.json` instead (the panel has no login, so only on a trusted
+network).

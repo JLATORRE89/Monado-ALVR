@@ -21,6 +21,8 @@ HELPERS=(
   apply-alvr-render-frame-timestamps.py    # 8 tracking frame timestamps (unique)
   apply-alvr-render-idr-dedup.py           # 9 IDR coalescing + fault handler
   apply-alvr-render-stream-extent.py       # 10 two-eye stream canvas
+  apply-alvr-render-instance.py            # 11 per-instance ALVR config/log dirs (ALVR_CONFIG_DIR/ALVR_LOG_DIR)
+  apply-alvr-render-alvr-abi.py            # 12 follow ALVR C API changes (no-op with the current header)
 )
 
 for helper in "${HELPERS[@]}"; do

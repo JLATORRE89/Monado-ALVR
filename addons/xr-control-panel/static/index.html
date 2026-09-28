@@ -24,6 +24,7 @@
   <button role="tab" data-tab="streaming">Streaming</button>
   <button role="tab" data-tab="settings">Settings</button>
   <button role="tab" data-tab="devices">Approved devices</button>
+  <button role="tab" data-tab="gpu">GPU Worker</button>
 </nav>
 
 <main>
@@ -37,8 +38,12 @@
 
   <section id="tab-captures" class="tab" role="tabpanel" hidden>
     <div class="section-head row">
-      <div><h1>Captures</h1><p class="muted">Screenshots and recordings, stored per headset on this PC.</p></div>
-      <label class="field compact"><span>Headset</span><select id="captureFilter"><option value="">All headsets</option></select></label>
+      <div><h1>Captures</h1><p class="muted">Screenshots, recordings and uploads, stored on this PC. The Loft's Pictures and Videos show them.</p></div>
+      <div class="row capture-tools">
+        <label class="field compact"><span>Headset</span><select id="captureFilter"><option value="">All headsets</option></select></label>
+        <label class="check"><input type="checkbox" id="deleteOnHeadset"> Also delete from headset</label>
+        <label class="btn primary upload">Upload pictures or videos<input type="file" id="uploadMedia" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime,video/x-matroska,.mkv" hidden></label>
+      </div>
     </div>
     <div id="captures" class="gallery"></div>
   </section>
@@ -58,16 +63,31 @@
     </div>
     <div class="card" data-runtime id="loftCard" hidden>
       <div class="row"><h2>Loft</h2><span id="loftMode" class="badge accent"></span></div>
-      <p class="muted">Switch the Loft's mini app for the wearer (they can also pick by looking at a tile for 1.5 s).</p>
+      <p class="muted">Open a menu item for the wearer (they can also point and pull the trigger, or look at a tile for 5 s).</p>
+      <div class="actions" id="loftButtons"></div>
       <div class="actions">
-        <button class="btn" data-loft="lobby">Lobby</button>
-        <button class="btn" data-loft="checkerboard">Checkerboard</button>
-        <button class="btn" data-loft="colors">Color test</button>
-        <button class="btn" data-loft="motion">Motion test</button>
-        <button class="btn" data-loft="pictures">Pictures</button>
-        <button class="btn" data-loft="prev">&lsaquo; Prev picture</button>
-        <button class="btn" data-loft="next">Next picture &rsaquo;</button>
+        <button class="btn" data-loft="prev">&lsaquo; Previous</button>
+        <button class="btn" data-loft="next">Next &rsaquo;</button>
+        <button class="btn" data-loft="pause">Play / pause video</button>
       </div>
+    </div>
+    <div class="card" data-runtime id="loftMenuCard">
+      <h2>Loft menu</h2>
+      <p class="muted">Choose what appears in the Loft's lobby. Add Quest apps (APKs installed on the headset) or PC mini-games (OpenXR programs on this PC).</p>
+      <div id="loftMenuList"></div>
+      <details class="add-entry">
+        <summary>Add a Quest app</summary>
+        <label class="field"><span>Headset</span><select id="apkHeadset"></select></label>
+        <label class="field"><span>Installed app</span><select id="apkPackage"><option value="">Load apps…</option></select></label>
+        <label class="field"><span>Title in the Loft</span><input type="text" id="apkTitle" maxlength="40"></label>
+        <div class="actions"><button class="btn" id="apkLoad">Load apps</button><button class="btn primary" id="apkAdd">Add to menu</button></div>
+      </details>
+      <details class="add-entry">
+        <summary>Add a PC mini-game</summary>
+        <label class="field"><span>Executable (absolute path)</span><input type="text" id="pcPath" placeholder="/opt/games/my-xr-game"></label>
+        <label class="field"><span>Title in the Loft</span><input type="text" id="pcTitle" maxlength="40"></label>
+        <div class="actions"><button class="btn primary" id="pcAdd">Add to menu</button></div>
+      </details>
     </div>
     <div class="card" data-runtime>
       <div class="row"><h2>ALVR connections</h2><span id="autoAccept" class="badge"></span></div>
@@ -86,6 +106,37 @@
         <button class="btn" id="restartRuntime" data-confirm="Restart the runtime? A connected headset will reconnect.">Restart runtime</button>
         <button class="btn" id="rebuildRuntime" data-confirm="Rebuild the runtime (re-apply companion patches and build incrementally)? Takes a few minutes; restart the runtime afterwards.">Rebuild runtime</button>
       </div>
+    </div>
+  </section>
+
+  <section id="tab-gpu" class="tab" role="tabpanel" hidden>
+    <div class="section-head"><h1>GPU Worker</h1><p class="muted">Run renders on a Local AI Stack shared GPU on another system. Results are saved to Captures (and the Loft's Pictures). Live VR frames stay on this PC's GPU.</p></div>
+    <div class="card">
+      <h2>Connection</h2>
+      <label class="field"><span>Remote address (IP or host, optional :port)</span><input type="text" id="gpuAddress" placeholder="192.168.1.80" autocomplete="off"></label>
+      <label class="field"><span>Certificate host name (needed when you use an IP address)</span><input type="text" id="gpuServerName" placeholder="ai.example.lan" autocomplete="off"></label>
+      <label class="field"><span>Custom CA file on this PC (optional)</span><input type="text" id="gpuCaFile" placeholder="/path/to/ca.pem" autocomplete="off"></label>
+      <label class="field"><span>Connection key (render + storage scopes; stays on this PC)</span><input type="password" id="gpuKey" autocomplete="new-password" placeholder="Leave empty to keep the saved key"></label>
+      <p class="muted" id="gpuState">Not set up yet.</p>
+      <div class="actions">
+        <button class="btn primary" id="gpuSave">Save</button>
+        <button class="btn" id="gpuTest">Test connection</button>
+        <button class="btn danger" id="gpuForget" data-confirm="Remove the saved connection key from this PC?">Remove key</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>New job</h2>
+      <label class="field"><span>Workflow</span><select id="gpuWorkflow"><option value="">Load workflows…</option></select></label>
+      <label class="field"><span>Source capture (optional for text-only workflows)</span><select id="gpuSource"><option value="">None</option></select></label>
+      <label class="field"><span>Prompt</span><textarea id="gpuPrompt" rows="3" maxlength="2000" placeholder="Describe the result you want"></textarea></label>
+      <div class="actions">
+        <button class="btn" id="gpuLoadWorkflows">Refresh workflows</button>
+        <button class="btn primary" id="gpuSubmit">Submit to shared GPU</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Jobs</h2>
+      <div id="gpuJobs"></div>
     </div>
   </section>
 
