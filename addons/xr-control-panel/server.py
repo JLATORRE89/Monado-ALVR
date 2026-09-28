@@ -15,6 +15,9 @@ import json
 import os
 import re
 import shutil
+import shlex
+import socket
+import ipaddress
 import subprocess
 import sys
 import tempfile
@@ -26,6 +29,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from usb_pairing import UsbPairing, atomic_json
+
 import gpu_worker  # noqa: E402  optional add-on: remote shared GPU (Local AI Stack)
 
 HERE = Path(__file__).resolve().parent
@@ -43,6 +48,7 @@ DEFAULTS = {
     # Wi-Fi access for headset browsers: listen on all interfaces; clients other than this PC
     # (and USB-reversed headsets, which arrive as 127.0.0.1) must be paired (see pairing below).
     "lan_access": False,
+    "auto_authorize_usb": False,
 }
 
 
@@ -144,7 +150,8 @@ def list_adb_devices() -> list[dict]:
             "serial": bits[0],
             "state": bits[1],
             "model": extra.get("model", "").replace("_", " "),
-            "transport": "wifi" if ":" in bits[0] else "usb",
+            "transport": "usb" if "usb" in extra else "wifi" if ":" in bits[0] or "_adb-" in bits[0] else "unknown",
+            "usb_path": extra.get("usb"),
         })
     return devices
 
@@ -157,12 +164,25 @@ INFO_CMD = (
     'echo "CLIENT=$(pm path {pkg} | head -1)"; '
     'echo "PID=$(pidof {pkg})"; '
     'echo "IP=$(ip -4 addr show wlan0 2>/dev/null | sed -n \'s/^ *inet \\([0-9.]*\\).*/\\1/p\' | head -1)"; '
+    'echo "IP6=$(ip -6 -o addr show wlan0 2>/dev/null | sed -n \'s/.*inet6 \\([^ /]*\\).*/\\1/p\' | tr \'\\n\' \' \')"; '
     'echo "METACAM=$(pm path com.oculus.metacam | head -1)"'
 )
 
 _cache_lock = threading.Lock()
 _cache: dict = {"time": 0.0, "data": None}
 recordings: dict[str, set] = {}
+
+
+def valid_ipv6_addresses(text):
+    addresses = []
+    for value in text.split():
+        try:
+            address = ipaddress.IPv6Address(value)
+            if not address.is_loopback and not address.is_unspecified and not address.is_multicast:
+                addresses.append(str(address))
+        except ValueError:
+            continue
+    return list(dict.fromkeys(addresses))
 
 
 def headset_info(dev: dict) -> dict:
@@ -179,6 +199,7 @@ def headset_info(dev: dict) -> dict:
         "client_installed": kv.get("CLIENT", "").startswith("package:"),
         "client_running": bool(kv.get("PID")),
         "ip": kv.get("IP") or None,
+        "ipv6": valid_ipv6_addresses(kv.get("IP6", "")),
         "is_quest": kv.get("METACAM", "").startswith("package:"),
         "recording": dev["serial"] in recordings,
     })
@@ -208,7 +229,8 @@ def headsets_snapshot(max_age: float = 2.0) -> dict:
         h["alvr"] = []
         for name, c in clients.get("clients", {}).items():
             ips = [c.get("current_ip")] + list(c.get("manual_ips") or [])
-            if (h.get("ip") and (h["ip"] in ips or h["ip"] in name)) or (
+            addresses = ([h["ip"]] if h.get("ip") else []) + h.get("ipv6", [])
+            if any(address in ips or address in name for address in addresses) or (
                     name == "client.wired" and h.get("transport") == "usb" and h.get("client_running")):
                 h["alvr"].append({"name": name, "state": c.get("connection_state"), "trusted": c.get("trusted")})
     data = {"adb": ADB is not None, "headsets": headsets, "alvr": clients}
@@ -284,13 +306,11 @@ def headset_action(serial: str, action: str) -> dict:
         # browser; the cookie it gets lets it use the panel over Wi-Fi afterwards.
         if not CFG.get("lan_access"):
             raise RuntimeError("turn on Wi-Fi access first (Settings, Panel access)")
-        out = adb("-s", serial, "shell", "ip", "-4", "addr", "show", "wlan0").stdout
-        m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)", out)
-        if not m:
-            raise RuntimeError("the headset has no Wi-Fi address (is Wi-Fi on?)")
-        url = f"http://{lan_address_for(m.group(1))}:{int(CFG['port'])}/?pair={pair_token()}"
-        adb("-s", serial, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", url)
-        return {"message": "Pairing page opened in the headset's browser; bookmark it there for Wi-Fi use"}
+        info = headset_info(require_headset(serial))
+        if not info.get("is_quest"):
+            raise ValueError("Wi-Fi panel pairing requires a Quest headset")
+        issue_usb_pairing(info, manual=True)
+        return {"message": "Pairing page opened in the headset's browser; bookmark the panel for Wi-Fi use"}
     if action == "panel-in-headset":
         # Over USB only: the headset's own 127.0.0.1:<port> is forwarded to this panel, so the
         # panel stays bound to localhost and nothing is exposed on the network.
@@ -500,8 +520,8 @@ def save_menu(items: list) -> dict:
             raise ValueError(f"invalid Android package name {target!r}")
         if kind == "pc":
             exe = Path(target).expanduser()
-            if not exe.is_absolute() or not exe.is_file() or not os.access(exe, os.X_OK):
-                raise ValueError(f"PC mini-game must be an executable file (absolute path): {target!r}")
+            if not exe.is_absolute() or not exe.is_file() or not (os.access(exe, os.X_OK) or (exe.suffix.lower() == ".py" and os.access(exe, os.R_OK))):
+                raise ValueError(f"PC mini-game must be an executable or readable Python file (absolute path): {target!r}")
         seen.add(ident)
         lines.append("\t".join(["1" if it.get("enabled") else "0", kind, ident, title, subtitle, target]))
     LOFT_MENU.parent.mkdir(parents=True, exist_ok=True)
@@ -519,6 +539,32 @@ def headset_packages(serial: str) -> list[str]:
     require_headset(serial)
     out = adb("-s", serial, "shell", "pm", "list", "packages", "-3").stdout
     return sorted(p[8:] for p in out.split() if p.startswith("package:") and PACKAGE_RE.match(p[8:]))
+
+
+def headset_apps(serial: str) -> dict:
+    packages = headset_packages(serial)
+    labels, warning = {}, None
+    if packages:
+        helper = HERE / "android/labels.jar"
+        try:
+            if not helper.is_file():
+                raise RuntimeError("label helper not installed")
+            pushed = adb("-s", serial, "push", str(helper), "/data/local/tmp/xr-loft-labels.jar")
+            if pushed.returncode:
+                raise RuntimeError("could not copy label helper")
+            result = adb("-s", serial, "shell", "CLASSPATH=/data/local/tmp/xr-loft-labels.jar",
+                         "app_process", "/system/bin", "LoftAppLabels", *packages, timeout=30)
+            if result.returncode:
+                raise RuntimeError("device label lookup failed")
+            labels = json.loads(result.stdout.strip())
+            if not isinstance(labels, dict):
+                raise ValueError("unexpected label response")
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+            warning = "Friendly names could not be read. Package names are shown; you can set the title in the Loft."
+    apps = [{"package": p, "label": str(labels.get(p) or p).replace("\n", " ").replace("\r", " ").replace("\t", " ").strip() or p}
+            for p in packages]
+    apps.sort(key=lambda app: (app["label"].casefold(), app["package"]))
+    return {"packages": packages, "apps": apps, "warning": warning}
 
 
 # ---------------------------------------------------------------- runtime features
@@ -641,6 +687,9 @@ STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=
 # ---------------------------------------------------------------- Wi-Fi pairing
 TOKEN_FILE = CONFIG_PATH.parent / "pair-token"
 COOKIE = "xrpanel"
+USB_PAIRS = UsbPairing(CONFIG_PATH.parent / "usb-paired-devices.json")
+_pairing_lock = threading.RLock()
+_pairing_wake = threading.Event()
 UNPAIRED_PAGE = (b"<!doctype html><meta name=viewport content='width=device-width'><title>XR Control Panel</title>"
                  b"<body style='font:18px system-ui;padding:24px'><h1>Pairing needed</h1><p>This device is not "
                  b"paired with the XR Control Panel. On the PC's panel, connect the headset by USB and use "
@@ -658,25 +707,116 @@ def pair_token(renew: bool = False) -> str:
 
 
 def lan_address_for(peer_ip: str) -> str:
-    """This PC's address on the route to peer_ip (what the headset can reach)."""
-    out = subprocess.run(["ip", "-4", "route", "get", peer_ip], capture_output=True, text=True).stdout
-    m = re.search(r"\bsrc (\d+\.\d+\.\d+\.\d+)", out)
+    """Use the same address family and actual route as the headset."""
+    peer = ipaddress.ip_address(peer_ip)
+    out = subprocess.run(["ip", "-6" if peer.version == 6 else "-4", "route", "get", str(peer)],
+                         capture_output=True, text=True).stdout
+    m = re.search(r"\bsrc (\S+)", out)
     if not m:
-        raise RuntimeError(f"no route from this PC to {peer_ip}")
-    return m.group(1)
+        raise RuntimeError("no route from this PC to the headset")
+    address = ipaddress.ip_address(m.group(1))
+    if address.version != peer.version:
+        raise RuntimeError("route address family mismatch")
+    return str(address)
+
+
+def url_host(address: str) -> str:
+    parsed = ipaddress.ip_address(address)
+    return f"[{parsed}]" if parsed.version == 6 else str(parsed)
+
+
+def pairing_address(info):
+    # Prefer existing IPv4 connectivity, then routable IPv6 (including ULA).
+    # Link-local addresses need an interface scope that differs between PC and headset.
+    candidates = ([info["ip"]] if info.get("ip") else []) + info.get("ipv6", [])
+    for candidate in candidates:
+        try:
+            peer = ipaddress.ip_address(candidate)
+            if peer.is_unspecified or peer.is_loopback or peer.is_multicast or peer.is_link_local:
+                continue
+            return lan_address_for(str(peer))
+        except (ValueError, RuntimeError):
+            continue
+    raise RuntimeError("No reachable Wi-Fi address. Connect the headset to IPv4 or routable IPv6 Wi-Fi.")
 
 
 def set_lan_access(enabled: bool) -> dict:
-    cfg = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.is_file() else {}
-    cfg["lan_access"] = bool(enabled)
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n")
+    if not isinstance(enabled, bool):
+        raise ValueError("enabled must be a boolean")
+    with _pairing_lock:
+        save_panel_setting("lan_access", enabled)
     if enabled:
         pair_token()
     # Re-bind: restart ourselves shortly after this response is sent.
     subprocess.Popen(["bash", "-c", "sleep 1; systemctl --user restart xr-control-panel.service"],
                      start_new_session=True)
     return {"message": "Wi-Fi access " + ("on" if enabled else "off") + "; the panel restarts now"}
+
+
+def save_panel_setting(key, value):
+    cfg = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.is_file() else {}
+    cfg[key] = value
+    atomic_json(CONFIG_PATH, cfg)
+    CFG[key] = value
+
+
+def set_auto_authorize_usb(enabled):
+    if not isinstance(enabled, bool):
+        raise ValueError("enabled must be a boolean")
+    with _pairing_lock:
+        save_panel_setting("auto_authorize_usb", enabled)
+    _pairing_wake.set()
+    return {"message": "Automatic USB authorization " + ("on" if enabled else "off")}
+
+
+def issue_usb_pairing(info, manual=False):
+    # Never use the device's current address as an authorization identity.
+    address = pairing_address(info)
+    with _pairing_lock:
+        if not CFG.get("lan_access") or (not manual and not CFG.get("auto_authorize_usb")):
+            return
+        token = USB_PAIRS.begin(info["serial"], info.get("model", "Quest"), manual=manual)
+        if not token:
+            return
+        url = f"http://{url_host(address)}:{int(CFG['port'])}/?pair={token}"
+        try:
+            result = adb("-s", info["serial"], "shell", "am", "start", "-a", "android.intent.action.VIEW",
+                         "-d", shlex.quote(url))
+            if result.returncode or "Error:" in result.stdout or "Error:" in result.stderr:
+                raise RuntimeError("headset browser could not be opened")
+        except Exception:
+            USB_PAIRS.launch_failed(info["serial"])
+            raise
+
+
+def auto_pair_usb_once():
+    if not CFG.get("lan_access") or not CFG.get("auto_authorize_usb"):
+        return
+    for device in list_adb_devices():
+        # Positive USB transport evidence, successful Android debugging authorization,
+        # and the Quest system package are all required. Ignore phones, emulators and Wi-Fi ADB.
+        if device["state"] != "device" or not device.get("usb_path") or not SERIAL_RE.fullmatch(device["serial"]):
+            continue
+        if not USB_PAIRS.needs_pairing(device["serial"]):
+            continue
+        try:
+            info = headset_info(device)
+            if info.get("is_quest") and (info.get("ip") or info.get("ipv6")):
+                issue_usb_pairing(info)
+        except Exception:
+            # A disconnected/offline headset must not prevent other headsets being paired.
+            # Never log the bearer URL or raw subprocess output.
+            continue
+
+
+def auto_pair_usb_worker():
+    while True:
+        try:
+            auto_pair_usb_once()
+        except Exception:
+            pass  # ADB can be unavailable while the headset or workstation reconnects.
+        _pairing_wake.wait(5)
+        _pairing_wake.clear()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -688,21 +828,20 @@ class Handler(BaseHTTPRequestHandler):
         import hmac
         from http.cookies import SimpleCookie
         client = self.client_address[0]
-        if client in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+        address = ipaddress.ip_address(client)
+        local_address = address.ipv4_mapped if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped else address
+        if local_address.is_loopback:
             return True
         token = pair_token() if TOKEN_FILE.is_file() else None
-        if not token:
-            self.send(403, UNPAIRED_PAGE, "text/html; charset=utf-8")
-            return False
         cookie = SimpleCookie(self.headers.get("Cookie", ""))
-        if COOKIE in cookie and hmac.compare_digest(cookie[COOKIE].value, token):
+        if COOKIE in cookie and ((token and hmac.compare_digest(cookie[COOKIE].value, token)) or USB_PAIRS.authorized(cookie[COOKIE].value)):
             return True
         url = urlparse(self.path)
         offered = parse_qs(url.query).get("pair", [""])[0]
-        if self.command == "GET" and url.path == "/" and offered and hmac.compare_digest(offered, token):
+        if self.command == "GET" and url.path == "/" and offered and ((token and hmac.compare_digest(offered, token)) or USB_PAIRS.accept(offered)):
             self.send_response(303)
             self.send_header("Location", "/")
-            self.send_header("Set-Cookie", f"{COOKIE}={token}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Strict")
+            self.send_header("Set-Cookie", f"{COOKIE}={offered}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Strict")
             self.send_header("Content-Length", "0")
             self.end_headers()
             return False
@@ -751,7 +890,10 @@ class Handler(BaseHTTPRequestHandler):
                     return self.json({"jobs": sorted(TRANSCODES.values(), key=lambda j: -j["started"])})
             if path == "/api/panel/access":
                 return self.json({"lan_access": bool(CFG.get("lan_access")), "port": int(CFG["port"]),
-                                  "paired_token_exists": TOKEN_FILE.is_file()})
+                                  "paired_token_exists": TOKEN_FILE.is_file(),
+                                  "auto_authorize_usb": bool(CFG.get("auto_authorize_usb")),
+                                  "usb_devices": USB_PAIRS.public(),
+                                  "ipv6_available": socket.has_dualstack_ipv6()})
             if path == "/api/headsets":
                 return self.json(headsets_snapshot())
             if path == "/api/captures":
@@ -774,7 +916,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json({"items": load_menu(), "builtins": LOFT_BUILTINS})
             m = re.match(r"^/api/headsets/([^/]+)/packages$", path)
             if m:
-                return self.json({"packages": headset_packages(unquote(m.group(1)))})
+                return self.json(headset_apps(unquote(m.group(1))))
             if path == "/api/gpu/status":
                 return self.json(gpu_worker.status())
             if path == "/api/gpu/workflows":
@@ -799,8 +941,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/panel/lan":
                 return self.json(set_lan_access(json.loads(self.body()).get("enabled", False)))
+            if path == "/api/panel/auto-usb":
+                return self.json(set_auto_authorize_usb(json.loads(self.body()).get("enabled")))
             if path == "/api/panel/revoke":
-                pair_token(renew=True)
+                with _pairing_lock:
+                    pair_token(renew=True)
+                    USB_PAIRS.revoke()
                 return self.json({"message": "Paired devices revoked; pair headsets again to use Wi-Fi"})
             m = re.match(r"^/api/headsets/([^/]+)/([a-z-]+)$", path)
             if m:
@@ -901,11 +1047,29 @@ class Handler(BaseHTTPRequestHandler):
             return self.error_json(e)
 
 
+class IPv6HTTPServer(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+    def server_bind(self):
+        self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
+
+
+def create_http_server(bind, port, lan_access):
+    if lan_access:
+        if socket.has_dualstack_ipv6():
+            return IPv6HTTPServer(("::", port), Handler)
+        return ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    server_type = IPv6HTTPServer if ":" in bind else ThreadingHTTPServer
+    return server_type((bind, port), Handler)
+
+
 def main():
-    bind = "0.0.0.0" if CFG.get("lan_access") else CFG["bind"]
-    server = ThreadingHTTPServer((bind, int(CFG["port"])), Handler)
-    print(f"XR Control Panel on http://{bind}:{CFG['port']}/ "
+    server = create_http_server(CFG["bind"], int(CFG["port"]), bool(CFG.get("lan_access")))
+    bind = server.server_address[0]
+    print(f"XR Control Panel on http://{url_host(bind)}:{CFG['port']}/ "
           f"(runtime: {runtime_root() or 'not configured'}, adb: {ADB or 'missing'})", flush=True)
+    threading.Thread(target=auto_pair_usb_worker, daemon=True, name="usb-pairing").start()
     server.serve_forever()
 
 

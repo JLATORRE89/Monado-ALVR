@@ -107,12 +107,12 @@ function actionButton(label, serial, action, cls = "btn", extra = {}) {
   }) }, label);
 }
 function headsetCard(h) {
-  const badges = [el("span", { class: "badge accent" }, h.transport === "wifi" ? "ADB Wi‑Fi" : "USB")];
+  const badges = [el("span", { class: "badge accent" }, h.transport === "wifi" ? "ADB Wi‑Fi" : h.transport === "usb" ? "USB" : "ADB")];
   if (h.state !== "device") badges.push(el("span", { class: "badge warn" }, h.state));
   else if (!h.is_quest) badges.push(el("span", { class: "badge" }, "Not a Quest"));
   if (h.recording) badges.push(el("span", { class: "badge bad" }, "● Recording"));
 
-  const card = el("article", { class: "card" },
+  const card = el("article", { class: "card headset-card" },
     el("div", { class: "headset-head" },
       el("div", {}, el("p", { class: "headset-title" }, h.model || "Android device"), el("div", { class: "serial" }, h.serial)),
       el("div", { class: "badges" }, badges)));
@@ -123,12 +123,15 @@ function headsetCard(h) {
     return card;
   }
   const alvr = (h.alvr || []).map(a => `${a.name} (${a.state || "?"})`).join(", ") || "—";
-  card.append(el("div", { class: "facts" },
-    fact("Battery", h.battery == null ? "—" : `${h.battery}%${h.charging ? " ⚡" : ""}`),
-    fact("Display", h.awake ? "Awake" : "Asleep"),
-    fact("Wi‑Fi IP", h.ip || "—"),
-    fact("Client", h.client_installed ? (h.client_running ? "Running" : "Installed") : "Not installed"),
-    fact("ALVR", alvr)));
+  card.append(el("div", { class: "device-details" },
+    el("div", { class: "device-status" },
+      fact("Battery", h.battery == null ? "—" : `${h.battery}%${h.charging ? " ⚡" : ""}`),
+      fact("Display", h.awake ? "Awake" : "Asleep"),
+      fact("Client", h.client_installed ? (h.client_running ? "Running" : "Installed") : "Not installed")),
+    el("div", { class: "device-network" },
+      fact("Wi-Fi IPv4", h.ip || "—"),
+      fact("Wi-Fi IPv6", (h.ipv6 || []).join("\n") || "—"),
+      fact("ALVR", alvr))));
   if (!h.is_quest) return card;
 
   card.append(el("div", { class: "actions" },
@@ -423,9 +426,11 @@ function renderLoftMenu() {
   $("#loftMenuList").replaceChildren(...loftMenu.map((i, n) => el("div", { class: "menu-row" },
     el("label", { class: "check" }, el("input", { type: "checkbox", checked: i.enabled || null,
       onchange: e => { loftMenu[n].enabled = e.target.checked; saveLoftMenu(null); } }), el("strong", {}, i.title)),
+    i.type === "builtin" ? null : el("input", { type: "text", value: i.title, maxlength: 40, "aria-label": `Title in the Loft for ${i.title}`,
+      onchange: e => { loftMenu[n].title = e.target.value.trim(); saveLoftMenu(null); } }),
     el("span", { class: "muted" }, `${kinds[i.type]}${i.type === "builtin" ? "" : " · " + i.target}`),
     i.type === "builtin" ? null : el("button", { class: "btn danger small", "data-confirm": `Remove ${i.title} from the menu?`,
-      onclick: e => run(e.currentTarget, async () => { loftMenu.splice(n, 1); return saveLoftMenu(null); }) }, "Remove"))));
+      onclick: e => run(e.currentTarget, async () => { loftMenu.splice(n, 1); return saveLoftMenu(null); }) }, "Remove from Loft"))));
 }
 async function saveLoftMenu(button) {
   return run(button, async () => {
@@ -446,12 +451,24 @@ function addMenuEntry(button, entry) {
 $("#apkLoad").addEventListener("click", e => run(e.currentTarget, async () => {
   const serial = $("#apkHeadset").value;
   if (!serial) throw new Error("connect a headset first");
-  const pk = (await api(`/api/headsets/${encodeURIComponent(serial)}/packages`)).packages;
-  $("#apkPackage").replaceChildren(...pk.map(p => el("option", { value: p }, p)));
-  return { message: `${pk.length} apps on the headset` };
+  const data = await api(`/api/headsets/${encodeURIComponent(serial)}/packages`);
+  const apps = data.apps || data.packages.map(p => ({ package: p, label: p }));
+  $("#apkPackage").replaceChildren(...apps.map(a => el("option", { value: a.package, dataset: { label: a.label } },
+    a.label === a.package ? a.package : `${a.label} (${a.package})`)));
+  updateApkTitle();
+  return { message: data.warning || `${apps.length} apps on the headset` };
 }));
+function updateApkTitle() {
+  const option = $("#apkPackage").selectedOptions[0];
+  $("#apkTitle").value = (option?.dataset.label || "").slice(0, 40);
+}
+$("#apkPackage").addEventListener("change", updateApkTitle);
+$("#apkHeadset").addEventListener("change", () => {
+  $("#apkPackage").replaceChildren(el("option", { value: "" }, "Load apps…"));
+  $("#apkTitle").value = "";
+});
 $("#apkAdd").addEventListener("click", e => {
-  const pkg = $("#apkPackage").value, title = $("#apkTitle").value.trim() || pkg.split(".").pop();
+  const pkg = $("#apkPackage").value, title = $("#apkTitle").value.trim() || ($("#apkPackage").selectedOptions[0]?.dataset.label || pkg).slice(0, 40);
   if (!pkg) return toast("load and pick an app first", "error");
   addMenuEntry(e.currentTarget, { type: "apk", title, subtitle: "Quest app", target: pkg });
 });
@@ -490,8 +507,12 @@ async function loadPanelAccess() {
   try {
     const a = await api("/api/panel/access");
     $("#lanAccess").checked = a.lan_access;
+    $("#autoAuthorizeUsb").checked = a.auto_authorize_usb;
+    const labels = { paired: "Authorized for Wi-Fi", pending: "Waiting for browser pairing", failed: "Manual pairing needed", revoked: "Access revoked" };
+    $("#usbPairingDevices").replaceChildren(...(a.usb_devices || []).map(d =>
+      el("p", { class: "muted" }, `${d.name || "Headset"} (${d.serial}): ${labels[d.state] || d.state}${d.error ? " — " + d.error : ""}`)));
     $("#lanState").textContent = a.lan_access
-      ? `On: paired headsets can open this panel over Wi-Fi at port ${a.port}.`
+      ? `On: paired headsets can open this panel over ${a.ipv6_available ? "IPv4 or IPv6" : "IPv4"} Wi-Fi at port ${a.port}.`
       : "Off: only this PC and USB-connected headsets can open the panel.";
   } catch (e) {
     toast(e.message, "error");
@@ -502,4 +523,15 @@ $("#lanAccess").addEventListener("change", e => run(null, async () => {
   setTimeout(loadPanelAccess, 3000);
   return res;
 }));
-$("#revokePairing").addEventListener("click", e => run(e.currentTarget, () => api("/api/panel/revoke", { method: "POST" })));
+$("#autoAuthorizeUsb").addEventListener("change", e => run(e.currentTarget, async () => {
+  try {
+    return await api("/api/panel/auto-usb", { method: "POST", json: { enabled: e.target.checked } });
+  } finally { await loadPanelAccess(); }
+}));
+$("#revokePairing").addEventListener("click", e => run(e.currentTarget, async () => {
+  const result = await api("/api/panel/revoke", { method: "POST" });
+  await loadPanelAccess();
+  return result;
+}));
+
+setInterval(() => { if (!$("#tab-settings").hidden) loadPanelAccess(); }, 5000);

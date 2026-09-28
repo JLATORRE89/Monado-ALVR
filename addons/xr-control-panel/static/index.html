@@ -73,7 +73,7 @@
     </div>
     <div class="card" data-runtime id="loftMenuCard">
       <h2>Loft menu</h2>
-      <p class="muted">Choose what appears in the Loft's lobby. Add Quest apps (APKs installed on the headset) or PC mini-games (OpenXR programs on this PC).</p>
+      <p class="muted">Choose what appears in the Loft's lobby. Add Quest apps (APKs installed on the headset) or PC mini-games (executables or Python apps on this PC). Remove from Loft removes only the shortcut.</p>
       <div id="loftMenuList"></div>
       <details class="add-entry">
         <summary>Add a Quest app</summary>
@@ -84,7 +84,8 @@
       </details>
       <details class="add-entry">
         <summary>Add a PC mini-game</summary>
-        <label class="field"><span>Executable (absolute path)</span><input type="text" id="pcPath" placeholder="/opt/games/my-xr-game"></label>
+        <p class="muted">Python apps run with Python 3, or .venv/bin/python beside the script. Install the app’s dependencies first. Desktop windows open on the PC; only OpenXR apps render in the headset.</p>
+        <label class="field"><span>Executable or Python file (absolute path)</span><input type="text" id="pcPath" placeholder="/opt/games/my-game/main.py"></label>
         <label class="field"><span>Title in the Loft</span><input type="text" id="pcTitle" maxlength="40"></label>
         <div class="actions"><button class="btn primary" id="pcAdd">Add to menu</button></div>
       </details>
@@ -103,6 +104,10 @@
       <p class="muted">Use this panel from a headset's browser over Wi-Fi (for example to send jobs to the GPU worker). Paired devices only: connect the headset by USB and use <b>Pair headset for Wi-Fi</b> on the Headsets tab. The panel has no password, so use this only on a trusted network.</p>
       <label class="switch"><input type="checkbox" id="lanAccess"> Wi-Fi access for paired headsets</label>
       <p class="muted" id="lanState"></p>
+      <label class="switch"><input type="checkbox" id="autoAuthorizeUsb"> Automatically authorize USB-connected headsets</label>
+      <p class="muted">With Wi-Fi access on, connect a headset once by USB and allow USB debugging. Its browser opens the pairing page automatically. After pairing, it can use this panel over Wi-Fi without the cable. The headset must already be on Wi-Fi.</p>
+      <p class="muted">Turning this off stops new automatic pairings. Revoke paired devices to remove existing access; revoked devices need manual pairing.</p>
+      <div id="usbPairingDevices" aria-live="polite"></div>
       <div class="actions"><button class="btn danger" id="revokePairing" data-confirm="Revoke all paired devices? They must be paired again.">Revoke paired devices</button></div>
     </div>
     <div class="card" data-runtime>

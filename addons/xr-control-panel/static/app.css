@@ -54,7 +54,7 @@ h2 { font-size: 1.1rem; margin: 0 0 6px; }
   color: var(--muted); font: 600 .95rem var(--font); cursor: pointer; }
 .tabs button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
 
-main { padding: 20px 16px calc(64px + env(safe-area-inset-bottom)); max-width: 1180px; margin: 0 auto; }
+main { padding: 20px 16px calc(64px + env(safe-area-inset-bottom)); max-width: 1440px; margin: 0 auto; }
 .section-head { margin-bottom: var(--gap); }
 .row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 
@@ -157,3 +157,23 @@ textarea { resize: vertical; }
 /* Captures: the controls row spans the page; the upload button sits at its far right. */
 .capture-tools { flex: 1 1 100%; justify-content: flex-start; align-items: center; }
 .capture-tools .upload { margin-left: auto; }
+
+/* One full-width item per headset. Status and network details have separate rows. */
+#headsets { grid-template-columns: minmax(0, 1fr); }
+.headset-card { min-width: 0; }
+.headset-card .headset-head { flex-wrap: wrap; }
+.headset-card .headset-head > div { min-width: 0; }
+.headset-card .serial { overflow-wrap: anywhere; }
+.device-details { display: grid; gap: 14px; margin: 16px 0; padding: 16px; border-radius: 12px; background: var(--surface-2); }
+.device-status, .device-network { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 24px; }
+.device-network { padding-top: 14px; border-top: 1px solid var(--line); grid-template-columns: minmax(0, .8fr) minmax(0, 1.3fr) minmax(0, 1fr); }
+.device-details .fact { min-width: 0; }
+.device-details .fact strong { white-space: pre-line; overflow-wrap: anywhere; word-break: normal; }
+.headset-card .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.headset-card .actions .btn { max-width: 100%; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .device-network { grid-template-columns: minmax(0, 1fr); }
+  .device-details { padding: 12px; }
+  .device-status { gap: 8px; }
+  .headset-card .actions .btn { flex: 1 1 145px; }
+}

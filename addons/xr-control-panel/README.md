@@ -120,3 +120,41 @@ streaming (this PC's GPU is then busy encoding their streams) and the worker off
 whose ID contains `transcode`. `POST /api/captures/transcode {headset, file, where: auto|local|gpu}`;
 local jobs are listed at `GET /api/transcodes`. Live VR streams always encode on the PC that
 renders them: raw frames (~2 GB/s per headset) cannot cross the network in time.
+
+### USB browser authorization, addresses and Loft shortcuts
+
+Settings → Panel access now offers **Automatically authorize USB-connected headsets**.
+It is off by default and requires Wi-Fi panel access to be enabled. A Quest with USB
+debugging approved on this computer and a reachable Wi-Fi address receives a one-time
+browser pairing link. Persistent per-device browser credentials survive USB removal
+and panel restart; addresses are not credentials. This authorizes the panel browser,
+not wireless ADB or ALVR streaming. Turning the setting off stops new grants; Revoke
+pairings invalidates existing grants and requires explicit manual pairing to restore.
+A browser whose storage was cleared can also be paired manually. Pairing retries are
+bounded and their status appears in Settings. Cookies are associated with the panel
+address; after changing the host's address, pair again.
+
+The panel supports a dual-stack IPv4/IPv6 listener when LAN access is enabled and the
+host supports it. Pairing supports IPv4 and routable IPv6, with bracketed IPv6 URLs.
+Link-local IPv6 is displayed but is not used for automatic pairing. This does not
+change ALVR's streaming protocol. Device cards use full-width items, separate status
+and address rows, wrapping addresses and action buttons.
+
+Installed Quest apps show their device-provided friendly labels followed by package
+names in parentheses. The selected label fills **Title in the Loft**, which is saved
+as the actual Loft tile title. Labels can be edited, including existing shortcuts.
+**Remove from Loft** removes either a Quest app or PC mini-game shortcut without
+uninstalling it or deleting its files. Labels are read by the small source-included
+Android helper (`android/LoftAppLabels.java`, compiled `android/labels.jar`) through
+authorized ADB; no Android application is installed. If label lookup fails, the UI
+shows a warning and package names remain available. Rebuild with `javac -source 8
+-target 8 -classpath "$ANDROID_JAR" -d "$BUILD_DIR" android/LoftAppLabels.java`, then
+`d8 --lib "$ANDROID_JAR" --output android/labels.jar "$BUILD_DIR/LoftAppLabels.class"`.
+
+PC mini-games accept executable files or readable `.py` files at absolute paths.
+The runtime launch hook runs Python with `.venv/bin/python` beside the script when
+present, otherwise `python3`, and uses the script's folder as its working directory.
+Install third-party dependencies in that environment first. Desktop Python windows
+appear on the PC; headset presentation of ordinary desktop apps is a separate backlog
+task. OpenXR applications can render directly to the headset. The Loft returns when
+the launched process finishes.

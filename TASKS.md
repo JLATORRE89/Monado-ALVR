@@ -658,3 +658,18 @@ Operator chose to extend the C Loft (not Godot/Unity). Plan:
    CC0 outdoor (trees) skybox + tree billboards for parallax; walkable 6DoF.
 3. Controllers in the Monado ALVR driver (poses, buttons, thumbsticks, haptics) -> joystick
    locomotion and snap turn in the Loft.
+
+## Codex panel and Quest Home follow-up (2026-09-27)
+
+- Implemented full-width device cards with separate status/address rows and wrapped buttons; dual-stack panel listener, IPv6 display and routable IPv6 pairing.
+- Added opt-in automatic USB-to-Wi-Fi panel browser authorization with persistent per-device grants, bounded retries and sticky revocation. Existing LAN/auto-pairing settings remain unchanged. This does not authorize wireless ADB or ALVR streaming.
+- Quest app picker reads real device labels; selected/editable title is saved to the Loft tile. Quest and mini-game shortcuts have explicit Remove from Loft controls (no uninstall).
+- PC mini-games accept readable Python files; launch hook selects adjacent .venv/bin/python or python3, uses the script folder and returns to Loft on exit.
+- Validation: 13 focused backend tests passed, including actual IPv4/IPv6 sockets; isolated browser checks at 320/412/1440px passed with full IPv6 addresses and buttons; friendly picker → tile title → removal passed; Python launch/working directory/venv/return smoke test passed. Real Quest label helper verified. Full native/streamed headset app-launch acceptance remains manual.
+- Native Quest Home grey floor/sky: restarted only com.oculus.vrshell, preserved data. Jason confirmed the room returned.
+
+### Backlog: display ordinary Python mini-games inside the headset
+
+- [ ] Present third-party desktop Python application windows on an interactive surface inside the Loft/headset. This is separate from launching scripts on the PC.
+- [ ] Select a window capture/presentation mechanism and map Quest controller input to pointer/keyboard input, including focus and returning to Loft.
+- [ ] Verify a basic third-party Python GUI/pygame app can be seen and operated entirely in the headset, with clean exit and useful failure feedback. Preserve native OpenXR mini-game support.

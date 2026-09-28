@@ -34,9 +34,10 @@ PYTHON="$(command -v python3 || true)"
 command -v adb >/dev/null || echo "NOTE: adb not on PATH; set \"adb\" in $CONFIG if it is installed elsewhere."
 
 echo "Installing XR Control Panel to $PREFIX"
-mkdir -p "$PREFIX/static" "$CONFIG_DIR" "$UNIT_DIR"
-install -m 0755 "$SRC/server.py" "$SRC/approved_devices.py" "$SRC/gpu_worker.py" "$PREFIX/"
+mkdir -p "$PREFIX/static" "$PREFIX/android" "$CONFIG_DIR" "$UNIT_DIR"
+install -m 0755 "$SRC/server.py" "$SRC/approved_devices.py" "$SRC/gpu_worker.py" "$SRC/usb_pairing.py" "$PREFIX/"
 install -m 0644 "$SRC/static/index.html" "$SRC/static/app.css" "$SRC/static/app.js" "$PREFIX/static/"
+install -m 0644 "$SRC/android/labels.jar" "$PREFIX/android/"
 install -m 0644 "$SRC/README.md" "$PREFIX/"
 
 # Create or update the config (only the options given on the command line change).
