@@ -47,6 +47,12 @@ for 2 s disappear. Others are drawn as people standing under their head position
 view direction. Tested with two runtimes and two Lofts on this PC (logs `PRESENCE joined`,
 snapshot shows the visitor); not yet with two real headsets.
 
+## Showing pictures and videos to everyone
+
+The control panel sends Loft commands (Pictures, Videos, Next, Pause, ...) to every running Loft
+(found from the running Loft processes), so all headsets see the same thing. Verified with two
+Lofts: one click switched both to Pictures ("sent to 2 headsets").
+
 ## Voice
 
 `scripts/xr-voice.sh watch` (service `intel-xr-voice.service`, started by `xr-instance.sh start`)
@@ -59,5 +65,5 @@ not seen during this session because no headset was streaming at the time).
 ## Limits
 
 - Every instance encodes its own stream on the one Arc GPU; expect 2-3 headsets at full quality.
-- The control panel's Loft card and media commands reach the default runtime's Loft only.
-- Visitors look like the staff style of person (no distinct clothing or name tag yet).
+- Visitors wear a bright shirt (one colour each, no apron) so they are not mistaken for staff; no
+  name tags yet.

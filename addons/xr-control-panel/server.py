@@ -504,11 +504,31 @@ def loft_command(cmd: str) -> dict:
         raise ValueError(f"unknown Loft command {cmd!r}")
     if not subprocess.run(["pgrep", "-x", "intel_xr_loft"], capture_output=True).stdout:
         raise RuntimeError("the Loft is not running (start it first)")
-    LOFT_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = LOFT_DIR / "command.tmp"
-    tmp.write_text(cmd + "\n")
-    os.replace(tmp, LOFT_DIR / "command")
-    return {"message": f"Loft: {cmd}"}
+    targets = loft_dirs()
+    for d in targets:  # every headset's Loft sees the same thing
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = d / "command.tmp"
+        tmp.write_text(cmd + "\n")
+        os.replace(tmp, d / "command")
+    return {"message": f"Loft: {cmd}" + (f" (sent to {len(targets)} headsets)" if len(targets) > 1 else "")}
+
+
+def loft_dirs() -> list[Path]:
+    """Control folders of the running Lofts (one per headset / runtime instance), read from each
+    running intel_xr_loft process's environment; the default folder if none can be read."""
+    dirs = []
+    pids = subprocess.run(["pgrep", "-x", "intel_xr_loft"], capture_output=True, text=True).stdout.split()
+    for pid in pids:
+        try:
+            env = dict(kv.split("=", 1) for kv in
+                       Path(f"/proc/{pid}/environ").read_bytes().decode(errors="replace").split("\0") if "=" in kv)
+        except OSError:
+            continue
+        d = Path(env["XR_LOFT_CONTROL_DIR"]) if env.get("XR_LOFT_CONTROL_DIR") else \
+            Path(env.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "xr-loft"
+        if d not in dirs:
+            dirs.append(d)
+    return dirs or [LOFT_DIR]
 
 
 # ---------------------------------------------------------------- approved devices

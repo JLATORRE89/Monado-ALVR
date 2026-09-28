@@ -42,7 +42,18 @@ app_name() {
 }
 ensure_runtime() {
   if [[ -n "$INSTANCE" ]]; then
+    local marker sock="$INSTANCE_RUNTIME_DIR/monado_comp_ipc"
+    marker="$(mktemp)"
+    local was_active=0
+    systemctl --user is-active --quiet "intel-xr-monado@$INSTANCE.service" && was_active=1
     bash "$MONADO/scripts/xr-instance.sh" start "$INSTANCE" >/dev/null
+    # A newly started Monado needs a moment to create its IPC socket (a stale one from an earlier
+    # run may still be there); apps started before that fail with XR_ERROR_RUNTIME_FAILURE.
+    for _ in $(seq 1 60); do
+      [[ -S "$sock" ]] && { [[ $was_active == 1 ]] || [[ "$sock" -nt "$marker" ]]; } && break
+      sleep 0.5
+    done
+    rm -f "$marker"
   else
     bash "$MONADO/scripts/monado-service.sh" ensure >/dev/null
   fi

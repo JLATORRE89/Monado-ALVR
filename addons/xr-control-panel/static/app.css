@@ -154,3 +154,6 @@ textarea { resize: vertical; }
 .add-entry { margin-top: 12px; }
 .add-entry summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
 .upload { cursor: pointer; }
+/* Captures: the controls row spans the page; the upload button sits at its far right. */
+.capture-tools { flex: 1 1 100%; justify-content: flex-start; align-items: center; }
+.capture-tools .upload { margin-left: auto; }
