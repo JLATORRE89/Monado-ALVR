@@ -138,7 +138,8 @@ function headsetCard(h) {
     h.client_installed ? (h.client_running
       ? actionButton("Close client", h.serial, "client-close", "btn", { "data-confirm": "Close the ALVR client on this headset?" })
       : actionButton("Launch client", h.serial, "client-launch")) : null,
-    h.awake ? null : actionButton("Wake", h.serial, "wake")));
+    h.awake ? null : actionButton("Wake", h.serial, "wake"),
+    actionButton("Open panel in headset", h.serial, "panel-in-headset")));
   return card;
 }
 let headsetsBusy = false;

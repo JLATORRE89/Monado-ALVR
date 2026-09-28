@@ -276,6 +276,16 @@ def headset_action(serial: str, action: str) -> dict:
     if action == "wake":
         adb("-s", serial, "shell", "input", "keyevent", "KEYCODE_WAKEUP")
         return {"message": "Wake sent"}
+    if action == "panel-in-headset":
+        # Over USB only: the headset's own 127.0.0.1:<port> is forwarded to this panel, so the
+        # panel stays bound to localhost and nothing is exposed on the network.
+        port = int(CFG["port"])
+        res = adb("-s", serial, "reverse", f"tcp:{port}", f"tcp:{port}")
+        if res.returncode != 0:
+            raise RuntimeError(res.stderr.strip() or "adb reverse failed (is the headset on USB?)")
+        adb("-s", serial, "shell", "am", "start", "-a", "android.intent.action.VIEW",
+            "-d", f"http://127.0.0.1:{port}/")
+        return {"message": f"Opened the panel in the headset's browser (http://127.0.0.1:{port}/, over USB)"}
     raise ValueError(f"unknown action {action!r}")
 
 

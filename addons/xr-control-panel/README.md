@@ -101,3 +101,12 @@ on this PC's GPU.
 - **Captures → Upload pictures or videos:** jpg, png, webp, mp4, webm, mov, mkv (up to 4 GiB),
   stored in `captures/library/` (names sanitised, never overwritten); the Loft's Pictures and
   Videos apps show them.
+
+## Using the panel from inside the headset
+
+The panel is mobile-first so it works in the Quest's browser. On the **Headsets** tab, **Open
+panel in headset** runs `adb reverse tcp:8083 tcp:8083` (USB) and opens
+`http://127.0.0.1:8083/` in the headset's browser. The panel stays bound to 127.0.0.1; nothing is
+opened to the network. Over Wi-Fi only, run the panel with `"bind": "<LAN address>"` in
+`~/.config/xr-control-panel/config.json` instead (the panel has no login, so only on a trusted
+network).

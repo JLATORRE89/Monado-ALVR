@@ -1,3 +1,10 @@
+> **ALVR upstream merge (2026-09-27 ~20:50):** branch `intel-xr-master-merge` (d28353c0, pushed to
+> the fork, NOT on master): our branch + 55 upstream commits incl. the new socket layer; our pacing /
+> send-buffer / IDR / wired / multi-instance features ported; server core builds. Before landing:
+> build the Quest client from it, carry `server_send_buffer_bytes` into `server_buffer_config`,
+> deploy (companion step 12 then patches alvr_render's alvr_send_video_nal call), headset-test USB +
+> Wi-Fi. Panel: "Open panel in headset" (adb reverse, verified HTTP 200 from the headset).
+
 > **W15 several headsets + voice (2026-09-27 ~20:30):** implemented, see `docs/multi-headset.md`.
 > ALVR fork 2d4cba1d (port offset, serial pin, instance audio names; server core built, target ==
 > deployed sha256 2a177877...), companion step 11 `apply-alvr-render-instance.py` (reconstruction
