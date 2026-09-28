@@ -40,6 +40,9 @@ DEFAULTS = {
     "approved_registry": str(Path.home() / ".config/intel-xr/approved-devices.json"),
     "client_package": "alvr.client.monado",
     "adb": None,  # optional explicit path to adb
+    # Wi-Fi access for headset browsers: listen on all interfaces; clients other than this PC
+    # (and USB-reversed headsets, which arrive as 127.0.0.1) must be paired (see pairing below).
+    "lan_access": False,
 }
 
 
@@ -276,6 +279,18 @@ def headset_action(serial: str, action: str) -> dict:
     if action == "wake":
         adb("-s", serial, "shell", "input", "keyevent", "KEYCODE_WAKEUP")
         return {"message": "Wake sent"}
+    if action == "pair-wifi":
+        # Over USB: open http://<this PC's LAN address>:<port>/?pair=<token> in the headset's
+        # browser; the cookie it gets lets it use the panel over Wi-Fi afterwards.
+        if not CFG.get("lan_access"):
+            raise RuntimeError("turn on Wi-Fi access first (Settings, Panel access)")
+        out = adb("-s", serial, "shell", "ip", "-4", "addr", "show", "wlan0").stdout
+        m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)", out)
+        if not m:
+            raise RuntimeError("the headset has no Wi-Fi address (is Wi-Fi on?)")
+        url = f"http://{lan_address_for(m.group(1))}:{int(CFG['port'])}/?pair={pair_token()}"
+        adb("-s", serial, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", url)
+        return {"message": "Pairing page opened in the headset's browser; bookmark it there for Wi-Fi use"}
     if action == "panel-in-headset":
         # Over USB only: the headset's own 127.0.0.1:<port> is forwarded to this panel, so the
         # panel stays bound to localhost and nothing is exposed on the network.
@@ -553,8 +568,76 @@ STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=
                 ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml"}
 
 
+# ---------------------------------------------------------------- Wi-Fi pairing
+TOKEN_FILE = CONFIG_PATH.parent / "pair-token"
+COOKIE = "xrpanel"
+UNPAIRED_PAGE = (b"<!doctype html><meta name=viewport content='width=device-width'><title>XR Control Panel</title>"
+                 b"<body style='font:18px system-ui;padding:24px'><h1>Pairing needed</h1><p>This device is not "
+                 b"paired with the XR Control Panel. On the PC's panel, connect the headset by USB and use "
+                 b"<b>Pair headset for Wi-Fi</b>.</p></body>")
+
+
+def pair_token(renew: bool = False) -> str:
+    import secrets
+    if renew or not TOKEN_FILE.is_file():
+        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(secrets.token_urlsafe(32))
+    return TOKEN_FILE.read_text().strip()
+
+
+def lan_address_for(peer_ip: str) -> str:
+    """This PC's address on the route to peer_ip (what the headset can reach)."""
+    out = subprocess.run(["ip", "-4", "route", "get", peer_ip], capture_output=True, text=True).stdout
+    m = re.search(r"\bsrc (\d+\.\d+\.\d+\.\d+)", out)
+    if not m:
+        raise RuntimeError(f"no route from this PC to {peer_ip}")
+    return m.group(1)
+
+
+def set_lan_access(enabled: bool) -> dict:
+    cfg = json.loads(CONFIG_PATH.read_text()) if CONFIG_PATH.is_file() else {}
+    cfg["lan_access"] = bool(enabled)
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2) + "\n")
+    if enabled:
+        pair_token()
+    # Re-bind: restart ourselves shortly after this response is sent.
+    subprocess.Popen(["bash", "-c", "sleep 1; systemctl --user restart xr-control-panel.service"],
+                     start_new_session=True)
+    return {"message": "Wi-Fi access " + ("on" if enabled else "off") + "; the panel restarts now"}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "XRControlPanel/1"
+
+    def authorized(self) -> bool:
+        """This PC (and USB-reversed headsets) always; other clients only with the pairing cookie.
+        A GET /?pair=<token> sets the cookie."""
+        import hmac
+        from http.cookies import SimpleCookie
+        client = self.client_address[0]
+        if client in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+            return True
+        token = pair_token() if TOKEN_FILE.is_file() else None
+        if not token:
+            self.send(403, UNPAIRED_PAGE, "text/html; charset=utf-8")
+            return False
+        cookie = SimpleCookie(self.headers.get("Cookie", ""))
+        if COOKIE in cookie and hmac.compare_digest(cookie[COOKIE].value, token):
+            return True
+        url = urlparse(self.path)
+        offered = parse_qs(url.query).get("pair", [""])[0]
+        if self.command == "GET" and url.path == "/" and offered and hmac.compare_digest(offered, token):
+            self.send_response(303)
+            self.send_header("Location", "/")
+            self.send_header("Set-Cookie", f"{COOKIE}={token}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Strict")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return False
+        self.send(401, UNPAIRED_PAGE, "text/html; charset=utf-8")
+        return False
 
     def log_message(self, *args):
         pass
@@ -578,6 +661,8 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(int(self.headers.get("Content-Length", "0") or 0))
 
     def do_GET(self):
+        if not self.authorized():
+            return
         url = urlparse(self.path)
         path = url.path
         try:
@@ -591,6 +676,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, f.read_bytes(), STATIC_TYPES[f.suffix], cache=True)
             if path == "/api/status":
                 return self.json(status())
+            if path == "/api/panel/access":
+                return self.json({"lan_access": bool(CFG.get("lan_access")), "port": int(CFG["port"]),
+                                  "paired_token_exists": TOKEN_FILE.is_file()})
             if path == "/api/headsets":
                 return self.json(headsets_snapshot())
             if path == "/api/captures":
@@ -632,8 +720,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.error_json(e)
 
     def do_POST(self):
+        if not self.authorized():
+            return
         path = urlparse(self.path).path
         try:
+            if path == "/api/panel/lan":
+                return self.json(set_lan_access(json.loads(self.body()).get("enabled", False)))
+            if path == "/api/panel/revoke":
+                pair_token(renew=True)
+                return self.json({"message": "Paired devices revoked; pair headsets again to use Wi-Fi"})
             m = re.match(r"^/api/headsets/([^/]+)/([a-z-]+)$", path)
             if m:
                 return self.json(headset_action(unquote(m.group(1)), m.group(2)))
@@ -730,8 +825,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    server = ThreadingHTTPServer((CFG["bind"], int(CFG["port"])), Handler)
-    print(f"XR Control Panel on http://{CFG['bind']}:{CFG['port']}/ "
+    bind = "0.0.0.0" if CFG.get("lan_access") else CFG["bind"]
+    server = ThreadingHTTPServer((bind, int(CFG["port"])), Handler)
+    print(f"XR Control Panel on http://{bind}:{CFG['port']}/ "
           f"(runtime: {runtime_root() or 'not configured'}, adb: {ADB or 'missing'})", flush=True)
     server.serve_forever()
 

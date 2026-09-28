@@ -98,6 +98,13 @@
 
   <section id="tab-settings" class="tab" role="tabpanel" hidden>
     <div class="section-head"><h1>Settings</h1><p class="muted">Runtime build and network settings (<code>config/xr-build.json</code>).</p></div>
+    <div class="card">
+      <h2>Panel access</h2>
+      <p class="muted">Use this panel from a headset's browser over Wi-Fi (for example to send jobs to the GPU worker). Paired devices only: connect the headset by USB and use <b>Pair headset for Wi-Fi</b> on the Headsets tab. The panel has no password, so use this only on a trusted network.</p>
+      <label class="switch"><input type="checkbox" id="lanAccess"> Wi-Fi access for paired headsets</label>
+      <p class="muted" id="lanState"></p>
+      <div class="actions"><button class="btn danger" id="revokePairing" data-confirm="Revoke all paired devices? They must be paired again.">Revoke paired devices</button></div>
+    </div>
     <div class="card" data-runtime>
       <label class="field"><span>Setting</span><select id="settingSelect"><option value="">Select a setting…</option></select></label>
       <div id="settingEditor"></div>

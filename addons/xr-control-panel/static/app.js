@@ -58,7 +58,7 @@ function showTab(name) {
   location.hash = name;
   if (name === "captures") loadCaptures();
   if (name === "streaming") { loadClients(); loadLoftMenu(); refreshApkHeadsets(); }
-  if (name === "settings") loadSettings();
+  if (name === "settings") { loadSettings(); loadPanelAccess(); }
   if (name === "devices") loadApproved();
   if (name === "gpu") loadGpu();
 }
@@ -139,7 +139,8 @@ function headsetCard(h) {
       ? actionButton("Close client", h.serial, "client-close", "btn", { "data-confirm": "Close the ALVR client on this headset?" })
       : actionButton("Launch client", h.serial, "client-launch")) : null,
     h.awake ? null : actionButton("Wake", h.serial, "wake"),
-    actionButton("Open panel in headset", h.serial, "panel-in-headset")));
+    actionButton("Open panel in headset", h.serial, "panel-in-headset"),
+    actionButton("Pair headset for Wi-Fi", h.serial, "pair-wifi")));
   return card;
 }
 let headsetsBusy = false;
@@ -480,3 +481,22 @@ $("#uploadMedia").addEventListener("change", async e => {
   if (ok) toast(`Uploaded ${ok} file${ok === 1 ? "" : "s"}; the Loft shows them in Pictures / Videos`);
   loadCaptures();
 });
+
+// ---------------------------------------------------------------- panel access (Wi-Fi pairing)
+async function loadPanelAccess() {
+  try {
+    const a = await api("/api/panel/access");
+    $("#lanAccess").checked = a.lan_access;
+    $("#lanState").textContent = a.lan_access
+      ? `On: paired headsets can open this panel over Wi-Fi at port ${a.port}.`
+      : "Off: only this PC and USB-connected headsets can open the panel.";
+  } catch (e) {
+    toast(e.message, "error");
+  }
+}
+$("#lanAccess").addEventListener("change", e => run(null, async () => {
+  const res = await api("/api/panel/lan", { method: "POST", json: { enabled: e.target.checked } });
+  setTimeout(loadPanelAccess, 3000);
+  return res;
+}));
+$("#revokePairing").addEventListener("click", e => run(e.currentTarget, () => api("/api/panel/revoke", { method: "POST" })));
