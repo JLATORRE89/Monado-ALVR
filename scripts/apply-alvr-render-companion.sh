@@ -23,6 +23,7 @@ HELPERS=(
   apply-alvr-render-stream-extent.py       # 10 two-eye stream canvas
   apply-alvr-render-instance.py            # 11 per-instance ALVR config/log dirs (ALVR_CONFIG_DIR/ALVR_LOG_DIR)
   apply-alvr-render-alvr-abi.py            # 12 follow ALVR C API changes (no-op with the current header)
+  apply-alvr-render-view-snapshot.py       # 13 on-demand view snapshot for the panel (Wi-Fi capture)
 )
 
 for helper in "${HELPERS[@]}"; do

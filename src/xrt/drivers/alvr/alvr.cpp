@@ -257,6 +257,12 @@ alvr_hmd_create(void)
 		view_pose = XRT_POSE_IDENTITY;
 	}
 	HMD_INFO(hmd, "[INTEL-XR-TRACKING] SEEDED_VALID_VIEW_POSES");
+	// Likewise the field of view stays zero until the headset sends its view params, and apps
+	// then render a degenerate (single-colour) image. Seed a Quest 2-like FOV; ALVR's view
+	// params replace it as soon as a headset connects.
+	for (auto &fov : hmd->base.hmd->distortion.fov) {
+		fov = xrt_fov{-0.87f, 0.80f, 0.84f, -0.91f};
+	}
 	hmd->base.inputs[0].name = XRT_INPUT_GENERIC_HEAD_POSE;
 	hmd->base.orientation_tracking_supported = true;
 	hmd->base.position_tracking_supported = true;
