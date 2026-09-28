@@ -1,3 +1,22 @@
+> **Wi-Fi capture + voice, not limited to USB (2026-09-28):** (1) view capture without ADB: companion
+> step 13 `apply-alvr-render-view-snapshot.py` (encoder writes one keyframe to
+> `$XDG_RUNTIME_DIR/intel-xr-view.h264` on `intel-xr-view-request`), default Quest 2 FOV seeded in
+> alvr.cpp so frames render before view params arrive; panel `gpu_screen_request` uses the USB
+> screenshot on ADB, else this stream frame (left eye, per instance via the pinned serial). Live:
+> panel capture of the running Loft = real 1824x1984 lobby image. Stream frames contain app content
+> only (no passthrough/Quest overlays). Reconstruction audit re-run with 13 steps: tree 9d735700 ==
+> alvr_render 841717b, second run idempotent. (2) HTTPS listener (`https_port` 8483, self-signed
+> cert for stable LAN addresses in ~/.config/xr-control-panel/tls; handshake per request thread);
+> insecure pages link to it. Verified on 192.168.1.80 and 192.168.86.151 (cert verifies, unpaired
+> -> 401). (3) `POST /api/voice/listen` + "Listen through headset": records the headset's ALVR mic
+> ("ALVR Microphone[ (<instance>)]") with pw-record, then whisper. Verified with a temporary virtual
+> source of that name (3 s recorded, audible); the real node exists only while a headset streams.
+> Tests: test_wifi_capture.py (7), test_https.py (3). NOT verified: real Quest mic over ALVR, Quest
+> browser accepting the cert, two headsets at once. Host firewall has no rule for TCP 8083/8483 from
+> 192.168.86.0/24 (Quest Wi-Fi); not changed (needs the user's approval).
+> Note: tests/test_panel.py is a LIVE click-through (restarts the runtime, stops apps); do not
+> include it in offline test loops.
+
 > **Local speech-to-text (2026-09-28):** headset browsers without speech recognition record a clip
 > that the panel transcribes with whisper.cpp base.en (build/whisper.cpp, models/whisper). Verified:
 > endpoint 0.75 s on the JFK sample, silence/junk refused, headless Chrome with a fake microphone
