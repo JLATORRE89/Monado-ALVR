@@ -1015,20 +1015,68 @@ def transcribe(audio: bytes) -> str:
     return text
 
 
+# ---------------------------------------------------------------- headset view without ADB
+def runtime_dir_for(serial: str) -> Path:
+    """XDG runtime folder of the runtime streaming this headset: the extra instance pinned to its
+    serial (scripts/xr-instance.sh), else the default runtime."""
+    inst_dir = Path.home() / ".config/intel-xr/instances"
+    for env in sorted(inst_dir.glob("*.env")) if inst_dir.is_dir() else []:
+        kv = dict(line.split("=", 1) for line in env.read_text().splitlines() if "=" in line)
+        if kv.get("ALVR_WIRED_SERIAL") == serial and kv.get("XDG_RUNTIME_DIR"):
+            return Path(kv["XDG_RUNTIME_DIR"])
+    return Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
+
+
+def stream_view_capture(serial: str) -> str:
+    """Capture what the runtime streams to this headset (works over Wi-Fi, no ADB): ask its encoder
+    for one keyframe (alvr_render companion step 13), decode the left eye and save it as a capture.
+    Shows app/Loft content, not passthrough or the Quest's own overlays."""
+    rdir = runtime_dir_for(serial)
+    frame, request = rdir / "intel-xr-view.h264", rdir / "intel-xr-view-request"
+    if not rdir.is_dir():
+        raise RuntimeError("the headset's runtime is not running")
+    before = frame.stat().st_mtime_ns if frame.exists() else 0
+    request.touch()
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        if frame.exists() and frame.stat().st_mtime_ns != before:
+            break
+        time.sleep(0.1)
+    else:
+        request.unlink(missing_ok=True)
+        raise RuntimeError("the headset's stream did not answer (is its runtime running?)")
+    name = f"view-{time.strftime('%Y%m%d-%H%M%S')}.jpg"
+    out = capture_dir_for(serial) / name
+    res = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-n", "-i", str(frame), "-frames:v", "1",
+                          "-vf", "crop=iw/2:ih:0:0", "-q:v", "2", str(out)], capture_output=True, text=True, timeout=30)
+    if res.returncode or not out.is_file():
+        raise RuntimeError("the captured stream frame could not be decoded")
+    return name
+
+
 def gpu_screen_request(serial, workflow, prompt):
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 2000:
         raise ValueError("Speak or type a request of at most 2000 characters")
-    try:
-        require_headset(serial)
-    except (RuntimeError, ValueError) as e:
-        raise RuntimeError(f"Cannot capture this headset's view: {e}. Connect it by USB (the panel captures "
-                           "the view over ADB); results can still come back over Wi-Fi.") from None
+    if not isinstance(serial, str) or not SERIAL_RE.fullmatch(serial):
+        raise ValueError("Select the headset to capture")
     available = gpu_worker.workflows()
     info = available.get(workflow)
     if not isinstance(info, dict) or int(info.get("reference_count") or 0) != 1:
         raise ValueError("Select a GPU image-analysis workflow accepting one source image")
-    shot = headset_action(serial, "screenshot")
-    source = capture_dir_for(serial) / shot["file"]
+    try:
+        require_headset(serial)
+        on_usb = True
+    except (RuntimeError, ValueError):
+        on_usb = False
+    if on_usb:   # the Quest screenshot includes passthrough and system overlays
+        name = headset_action(serial, "screenshot")["file"]
+    else:        # over Wi-Fi: the frame the runtime streams to this headset
+        try:
+            name = stream_view_capture(serial)
+        except RuntimeError as e:
+            raise RuntimeError(f"Cannot capture this headset's view: {e}") from None
+    shot = {"file": name}
+    source = capture_dir_for(serial) / name
     rec = gpu_worker.submit(workflow, prompt.strip(), source, serial + "/" + shot["file"],
                             review_serial=serial)
     return {"message":"Captured the headset view and submitted your request; the result will return to this headset", "job":rec}
