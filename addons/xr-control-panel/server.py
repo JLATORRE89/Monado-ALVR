@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import shlex
+import signal
 import socket
 import ssl
 import ipaddress
@@ -1019,16 +1020,52 @@ def transcribe(audio: bytes) -> str:
     return text
 
 
-# ---------------------------------------------------------------- headset view without ADB
-def runtime_dir_for(serial: str) -> Path:
-    """XDG runtime folder of the runtime streaming this headset: the extra instance pinned to its
-    serial (scripts/xr-instance.sh), else the default runtime."""
+# ---------------------------------------------------------------- headset view and voice without ADB
+def instance_env_for(serial: str) -> dict:
+    """Settings of the extra runtime instance pinned to this headset's serial (scripts/xr-instance.sh);
+    empty for a headset on the default runtime."""
     inst_dir = Path.home() / ".config/intel-xr/instances"
     for env in sorted(inst_dir.glob("*.env")) if inst_dir.is_dir() else []:
         kv = dict(line.split("=", 1) for line in env.read_text().splitlines() if "=" in line)
-        if kv.get("ALVR_WIRED_SERIAL") == serial and kv.get("XDG_RUNTIME_DIR"):
-            return Path(kv["XDG_RUNTIME_DIR"])
-    return Path(os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
+        if kv.get("ALVR_WIRED_SERIAL") == serial:
+            return kv
+    return {}
+
+
+def runtime_dir_for(serial: str) -> Path:
+    """XDG runtime folder of the runtime streaming this headset."""
+    rdir = instance_env_for(serial).get("XDG_RUNTIME_DIR")
+    return Path(rdir or os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
+
+
+def headset_mic_node(serial: str) -> str:
+    """PipeWire source ALVR creates for this headset's microphone while it streams."""
+    name = instance_env_for(serial).get("ALVR_INSTANCE_NAME")
+    return f"ALVR Microphone ({name})" if name else "ALVR Microphone"
+
+
+def record_headset_mic(serial: str, seconds: float) -> bytes:
+    """Record the headset's microphone as streamed by ALVR over Wi-Fi (no browser, no ADB)."""
+    if not shutil.which("pw-record"):
+        raise RuntimeError("PipeWire tools (pw-record) are not installed on this PC")
+    node = headset_mic_node(serial)
+    ports = subprocess.run(["pw-link", "-o"], capture_output=True, text=True, timeout=10).stdout.splitlines()
+    if not any(line.startswith(node + ":") for line in ports):
+        raise RuntimeError("This headset's microphone stream is not available. It must be streaming, "
+                           "with microphone access allowed for the ALVR app in the headset")
+    with tempfile.TemporaryDirectory() as tmp:
+        wav = Path(tmp) / "mic.wav"
+        proc = subprocess.Popen(["pw-record", "--target", node, "--rate", "16000", "--channels", "1",
+                                 "--format", "s16", str(wav)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        try:
+            proc.wait(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            proc.send_signal(signal.SIGINT)
+            proc.wait(timeout=10)
+        data = wav.read_bytes() if wav.is_file() else b""
+    if len(data) <= 44:
+        raise RuntimeError("Nothing was recorded from the headset microphone")
+    return data
 
 
 def stream_view_capture(serial: str) -> str:
@@ -1464,6 +1501,19 @@ class Handler(BaseHTTPRequestHandler):
                 if length > 5 * 1024 * 1024:
                     return self.json({"error": "Recording too long"}, 413)
                 return self.json({"text": transcribe(self.rfile.read(length))})
+            if path == "/api/voice/listen":
+                # Wi-Fi voice without the browser microphone: record the headset's ALVR mic stream.
+                req = json.loads(self.body())
+                me = self.identity()
+                if me and req.get("serial") not in (None, "", me):
+                    return self.json({"error": "A headset can only listen through its own microphone"}, 403)
+                serial = me or req.get("serial")
+                if not isinstance(serial, str) or not SERIAL_RE.fullmatch(serial):
+                    raise ValueError("Select the headset to listen to")
+                seconds = req.get("seconds", 6)
+                if not isinstance(seconds, (int, float)) or not 1 <= seconds <= 15:
+                    raise ValueError("Listen for 1 to 15 seconds")
+                return self.json({"text": transcribe(record_headset_mic(serial, float(seconds)))})
             if path == "/api/gpu/screen-request":
                 req = json.loads(self.body())
                 me = self.identity()

@@ -682,6 +682,19 @@ async function sendScreenRequest(button) {
   });
 }
 $("#voiceSend").addEventListener("click", e => sendScreenRequest(e.currentTarget));
+// No browser microphone needed: the panel records the headset's own microphone stream (ALVR).
+$("#voiceListen").addEventListener("click", e => {
+  const button = e.currentTarget, serial = $("#voiceHeadset").value;
+  if (!serial || !$("#gpuWorkflow").value) return toast("Select a headset and image-analysis workflow first", "error");
+  $("#voiceStatus").textContent = "Listening through the headset microphone… speak your request now (6 s).";
+  run(button, async () => {
+    try {
+      const { text } = await api("/api/voice/listen", { method: "POST", json: { serial, seconds: 6 } });
+      $("#voiceRequest").value = text; $("#voiceStatus").textContent = `Heard: ${text}`;
+      return { text };
+    } catch (err) { $("#voiceStatus").textContent = err.message; throw err; }
+  }).then(heard => heard && sendScreenRequest($("#voiceSend")));
+});
 const BrowserSpeech = window.SpeechRecognition || window.webkitSpeechRecognition;
 // Headset browsers often have no speech recognition (or it needs a cloud service): then the page
 // records a short clip and the panel transcribes it on this PC (whisper.cpp); nothing is stored.

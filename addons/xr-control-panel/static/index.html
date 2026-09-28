@@ -192,9 +192,9 @@
         <label class="field"><span>Microphone input level</span><meter id="micLevel" min="0" max="100" value="0">0</meter></label>
         <p id="micStatus" role="status" class="muted">Test the microphone before speaking a command. The 12-second test stays in this browser; audio is not recorded or uploaded.</p>
         <label class="field"><span>Your request</span><textarea id="voiceRequest" maxlength="2000" placeholder="Find all dogs and mark them in the captured image"></textarea></label>
-        <div class="actions"><button class="btn primary" id="voiceSpeak">Speak a request</button><button class="btn" id="voiceStop" disabled>Stop listening</button><button class="btn" id="voiceSend">Capture and send request</button></div>
+        <div class="actions"><button class="btn primary" id="voiceSpeak">Speak a request</button><button class="btn" id="voiceStop" disabled>Stop listening</button><button class="btn" id="voiceSend">Capture and send request</button><button class="btn" id="voiceListen" title="Records the headset microphone streamed by ALVR; works over Wi-Fi without browser microphone access">Listen through headset (6 s)</button></div>
         <p id="voiceStatus" role="status" class="muted"></p>
-        <p class="muted">Speech uses your browser’s recognition service, which may require internet. After you finish speaking, the request is submitted automatically. Results are copied to Pictures on the selected headset and opened there for review.</p>
+        <p class="muted">Speak a request uses this browser’s microphone; Listen through headset uses the headset’s microphone streamed to this PC, so it also works over Wi-Fi. Speech is recognised on this PC when the browser cannot. The request is sent when you finish speaking. The view is captured over USB, or from the headset’s stream over Wi-Fi. Results appear here with an “open it” link and in the GPU jobs list. Over USB they are also copied to the headset’s Pictures and opened there.</p>
       </details>
       <label class="field"><span>Workflow</span><select id="gpuWorkflow"><option value="">Load workflows…</option></select></label>
       <label class="field"><span>Source capture (optional for text-only workflows)</span><select id="gpuSource"><option value="">None</option></select></label>

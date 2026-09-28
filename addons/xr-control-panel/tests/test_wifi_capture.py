@@ -93,6 +93,35 @@ class WifiCaptureTests(unittest.TestCase):
             stream.assert_not_called()
             usb.assert_called_once_with('SECOND', 'screenshot')
 
+    def test_headset_mic_node_per_instance(self):
+        env = self.d / '.config/intel-xr/instances/quest2.env'
+        env.write_text(env.read_text() + 'ALVR_INSTANCE_NAME=quest2\n')
+        self.assertEqual(self.s.headset_mic_node('SECOND'), 'ALVR Microphone (quest2)')
+        self.assertEqual(self.s.headset_mic_node('FIRST'), 'ALVR Microphone')
+
+    def test_listen_needs_the_streamed_microphone(self):
+        ports = subprocess.CompletedProcess([], 0, 'ALVR Microphone (other):capture_MONO\n', '')
+        with patch.object(self.s.subprocess, 'run', return_value=ports), \
+             patch.object(self.s.shutil, 'which', return_value='/usr/bin/pw-record'), \
+             patch.object(self.s.subprocess, 'Popen') as rec:
+            with self.assertRaisesRegex(RuntimeError, 'microphone stream is not available'):
+                self.s.record_headset_mic('FIRST', 2)
+            rec.assert_not_called()
+
+    def test_listen_endpoint_is_limited_to_own_headset(self):
+        h = object.__new__(self.s.Handler)
+        h.client_address = ('192.0.2.5', 5000)
+        h.command, h.path, h.headers = 'POST', '/api/voice/listen', {'Content-Length': '0'}
+        h.authorized = lambda: True
+        h.identity = lambda: 'SECOND'
+        h.body = lambda: json.dumps({'serial': 'FIRST'}).encode()
+        sent = []
+        h.json = lambda obj, code=200: sent.append((code, obj))
+        with patch.object(self.s, 'record_headset_mic') as rec:
+            h.do_POST()
+        self.assertEqual(sent[0][0], 403)
+        rec.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()
