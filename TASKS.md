@@ -1,3 +1,9 @@
+> **Tablet Loft client (Claude, 2026-09-28):** SM-X210 joins the Loft as its own user. Loft 2816a58
+> intel_xr_loft_flat (flat renderer in presence) + panel 8e3fafa7f tablet_client.py, /tablet page with touch
+> and Xbox controller (Gamepad API; needs a secure page: USB 127.0.0.1 or HTTPS), "Join the Loft" on the tablet
+> card. Verified on the tablet (render, presence, tap-to-sit, look). Each renderer uses ~9 MiB of CPU-visible
+> VRAM (see the ReBAR note below). TODO: drinking and voice from the tablet, a real Xbox pad test.
+
 > **Live re-open check (Claude, 2026-09-28 18:41-18:55) - partial:** live runtime now runs the step-15
 > binary (72 Hz interval confirmed). 30 diagnostic requests -> 18 re-opens (74-94 ms), 0 faults, runtime
 > and Loft stayed up, but the Quest client had already stopped streaming (headset not worn), so the
