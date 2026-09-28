@@ -24,6 +24,7 @@ HELPERS=(
   apply-alvr-render-instance.py            # 11 per-instance ALVR config/log dirs (ALVR_CONFIG_DIR/ALVR_LOG_DIR)
   apply-alvr-render-alvr-abi.py            # 12 follow ALVR C API changes (no-op with the current header)
   apply-alvr-render-view-snapshot.py       # 13 on-demand view snapshot for the panel (Wi-Fi capture)
+  apply-alvr-render-vbv.py                 # 14 rate-control buffer of INTEL_XR_VBV_FRAMES (sharper keyframes)
 )
 
 for helper in "${HELPERS[@]}"; do

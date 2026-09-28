@@ -1,3 +1,17 @@
+> **Loft quality pass (2026-09-28):** (3) Loft art pass, loft main 4367fc8: baked 4096² sun shadow
+> map (window grid + furniture shadows), furnishings' AO baked at start-up into a 5 cm ambient-cube
+> volume (compute shader), rounded club chairs, bevelled tables, leafy plants, bottles, bordered
+> rugs; tools/loft_preview renders a view headless. Live at 2553x2777/eye: 0 late frames (a
+> per-pixel AO version produced 4116 in 2.5 min, so it was replaced). (2) Stream: HEVC Main10
+> (session use_10bit; backup session.json.pre-10bit-2026-09-28) + companion step 14
+> apply-alvr-render-vbv.py (rate-control buffer INTEL_XR_VBV_FRAMES, default 2.5 frames; 1 =
+> upstream). Keyframe 110 KB -> ~228 KB, visibly crisper; 0 late frames after. Reconstruction
+> audit (14 steps): tree 316b3c6e == alvr_render 904fe27, second run idempotent. NOT verified in
+> the headset: Main10 decode/latency on the Quest 2, IDR bursts over 2.4 GHz Wi-Fi (set
+> INTEL_XR_VBV_FRAMES=1 in the service env if Wi-Fi stutters on reconnects). The Khronos
+> validation layer is not installed here, so Vulkan validation was not run. Wi-Fi adapter is an
+> RT5372 (USB 2.0, 2.4 GHz only): moving it to a USB 3 port does not raise throughput.
+
 > **Loft image quality, stream side (2026-09-28):** ALVR session switched H.264 -> HEVC (8-bit; Arc
 > VAAPI HEVC LP encode; backup ~/.config/alvr/session.json.pre-hevc-2026-09-28). Same Loft view,
 > same 76 Mbit/s: keyframe 158,400 B (H.264, blocky, subtitles illegible) -> 110,772 B (HEVC,
