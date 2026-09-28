@@ -188,6 +188,9 @@ async function loadCaptures() {
           el("span", {}, el("strong", {}, knownHeadsets.get(c.headset) || c.headset), el("br"), when),
           el("span", { class: "actions" },
             el("a", { href: url, download: c.file }, "Download"),
+            c.type === "video" && !c.file.includes("-headset") ? el("button", { class: "btn small",
+              onclick: e => run(e.currentTarget, () => api("/api/captures/transcode", { method: "POST",
+                json: { headset: c.headset, file: c.file, where: "auto" } })) }, "Prepare for headset") : null,
             el("button", { class: "btn danger small", "data-confirm": `Delete ${c.file}?`,
               onclick: e => run(e.currentTarget, async () => {
                 const res = await api("/api/captures/delete", { method: "POST",

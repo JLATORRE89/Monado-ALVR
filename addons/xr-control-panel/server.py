@@ -383,6 +383,76 @@ def save_upload(name: str, length: int, stream) -> dict:
     return {"message": f"Uploaded {dst.name}", "file": dst.name}
 
 
+# ---------------------------------------------------------------- headset-friendly video (local or GPU worker)
+TRANSCODES: dict[str, dict] = {}
+_transcode_lock = threading.Lock()
+
+
+def running_lofts() -> int:
+    return len(subprocess.run(["pgrep", "-x", "intel_xr_loft"], capture_output=True, text=True).stdout.split())
+
+
+def gpu_transcode_workflow() -> str | None:
+    """A GPU worker workflow for video transcoding, if the worker is set up and offers one."""
+    if not gpu_worker.status()["configured"]:
+        return None
+    try:
+        return next((w for w in sorted(gpu_worker.workflows()) if "transcode" in w.lower()), None)
+    except gpu_worker.GpuWorkerError:
+        return None
+
+
+def _local_transcode(job_id: str, src: Path, dst: Path) -> None:
+    base = ["ffmpeg", "-v", "error", "-nostdin", "-n"]
+    hw = base + ["-vaapi_device", "/dev/dri/renderD128", "-i", str(src), "-vf",
+                 "scale='min(1920,iw)':-2,format=nv12,hwupload", "-c:v", "h264_vaapi", "-b:v", "8M",
+                 "-maxrate", "10M", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(dst)]
+    sw = base + ["-i", str(src), "-vf", "scale='min(1920,iw)':-2", "-c:v", "libx264", "-preset", "veryfast",
+                 "-crf", "21", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(dst)]
+    res = subprocess.run(hw, capture_output=True, text=True, timeout=3600)
+    how = "Arc hardware encoder"
+    if res.returncode != 0:
+        dst.unlink(missing_ok=True)
+        res = subprocess.run(sw, capture_output=True, text=True, timeout=7200)
+        how = "software encoder"
+    with _transcode_lock:
+        TRANSCODES[job_id].update(status="complete" if res.returncode == 0 else "failed", how=how,
+                                  error=res.stderr.strip()[-300:] if res.returncode else "")
+
+
+def transcode_capture(headset: str, file: str, where: str = "auto") -> dict:
+    """Make a video headset-friendly (H.264, at most 1920 wide) into captures/library/. Runs on the
+    GPU worker when asked, or automatically when two or more headsets are streaming (this PC's GPU
+    is busy encoding their streams) and the worker offers a transcode workflow; otherwise locally."""
+    if not DIR_RE.match(headset) or not FILE_RE.match(file):
+        raise ValueError("invalid capture name")
+    src = CAPTURE_DIR / headset / file
+    if not src.is_file() or src.suffix.lower() not in VIDEO_EXTS:
+        raise ValueError("pick a video capture")
+    if where not in ("auto", "local", "gpu"):
+        raise ValueError("where must be auto, local or gpu")
+    workflow = gpu_transcode_workflow() if where in ("auto", "gpu") else None
+    if where == "gpu" and not workflow:
+        raise ValueError("the GPU worker is not set up or offers no transcode workflow")
+    if workflow and (where == "gpu" or running_lofts() >= 2):
+        rec = gpu_worker.submit(workflow, "Transcode for headset playback: H.264, at most 1920 wide, AAC",
+                                src, f"{headset}/{file}")
+        return {"message": f"Sent to the GPU worker ({workflow}); check the GPU Worker tab", "job": rec}
+    folder = CAPTURE_DIR / LIBRARY
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", src.stem)[:90]
+    for n in range(1000):
+        dst = folder / (f"{stem}-headset.mp4" if n == 0 else f"{stem}-headset-{n}.mp4")
+        if not dst.exists():
+            break
+    job_id = f"{int(time.time() * 1000):x}"
+    with _transcode_lock:
+        TRANSCODES[job_id] = {"id": job_id, "source": f"{headset}/{file}", "output": dst.name, "status": "running",
+                              "how": "", "error": "", "started": time.time()}
+    threading.Thread(target=_local_transcode, args=(job_id, src, dst), daemon=True).start()
+    return {"message": f"Preparing {dst.name} on this PC; it appears in Captures when done", "job": TRANSCODES[job_id]}
+
+
 # ---------------------------------------------------------------- Loft menu (shared with the Loft's library.c)
 LOFT_MENU = Path(os.environ.get("XR_LOFT_MENU") or Path.home() / ".config/xr-loft/menu.tsv")
 MENU_TYPES = ("builtin", "apk", "pc")
@@ -676,6 +746,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, f.read_bytes(), STATIC_TYPES[f.suffix], cache=True)
             if path == "/api/status":
                 return self.json(status())
+            if path == "/api/transcodes":
+                with _transcode_lock:
+                    return self.json({"jobs": sorted(TRANSCODES.values(), key=lambda j: -j["started"])})
             if path == "/api/panel/access":
                 return self.json({"lan_access": bool(CFG.get("lan_access")), "port": int(CFG["port"]),
                                   "paired_token_exists": TOKEN_FILE.is_file()})
@@ -749,6 +822,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/library/upload":
                 return self.json(save_upload(unquote(self.headers.get("X-Filename", "")),
                                              int(self.headers.get("Content-Length", "0") or 0), self.rfile), 201)
+            if path == "/api/captures/transcode":
+                req = json.loads(self.body())
+                return self.json(transcode_capture(str(req.get("headset", "")), str(req.get("file", "")),
+                                                   str(req.get("where", "auto"))), 202)
             if path == "/api/captures/delete":
                 req = json.loads(self.body())
                 return self.json(delete_capture(str(req.get("headset", "")), str(req.get("file", "")),

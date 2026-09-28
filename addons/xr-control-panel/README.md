@@ -110,3 +110,13 @@ panel in headset** runs `adb reverse tcp:8083 tcp:8083` (USB) and opens
 opened to the network. Over Wi-Fi only, run the panel with `"bind": "<LAN address>"` in
 `~/.config/xr-control-panel/config.json` instead (the panel has no login, so only on a trusted
 network).
+
+## Headset-friendly videos (local or GPU worker)
+
+Each video in Captures has **Prepare for headset**: an H.264 copy at most 1920 wide with AAC sound,
+saved as `captures/library/<name>-headset.mp4` (never overwriting). It runs on this PC's Arc
+hardware encoder (software x264 if that fails), or on the GPU worker when two or more headsets are
+streaming (this PC's GPU is then busy encoding their streams) and the worker offers a workflow
+whose ID contains `transcode`. `POST /api/captures/transcode {headset, file, where: auto|local|gpu}`;
+local jobs are listed at `GET /api/transcodes`. Live VR streams always encode on the PC that
+renders them: raw frames (~2 GB/s per headset) cannot cross the network in time.
