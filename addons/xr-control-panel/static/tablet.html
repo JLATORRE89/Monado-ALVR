@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="color-scheme" content="dark">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Loft</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='2' y='6' width='20' height='12' rx='4' fill='%232457d6'/%3E%3Ccircle cx='8' cy='12' r='2.4' fill='white'/%3E%3Ccircle cx='16' cy='12' r='2.4' fill='white'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0f1115; --surface: rgba(23, 26, 32, .82); --text: #e7e9ee; --muted: #9aa3b2; --line: rgba(255, 255, 255, .16);
+    --accent: #7aa2ff; --accent-ink: #0b1020; --danger: #ff8a80;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Liberation Sans", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font: 15px/1.4 var(--font); }
+  body { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .bar { position: fixed; top: 0; left: 0; right: 0; display: flex; gap: 8px; align-items: center;
+         padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 10px max(12px, env(safe-area-inset-left));
+         pointer-events: none; }
+  .bar > * { pointer-events: auto; }
+  .pill { background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px;
+          backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  #status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
+  #status.error { color: var(--danger); }
+  .spacer { flex: 1; }
+  button, a.btn { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line);
+                  border-radius: 999px; padding: 8px 14px; min-height: 40px; text-decoration: none; cursor: pointer;
+                  display: inline-flex; align-items: center; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+  #stick { position: fixed; left: max(28px, env(safe-area-inset-left)); bottom: max(28px, env(safe-area-inset-bottom));
+           width: 150px; height: 150px; border-radius: 50%; background: rgba(15, 17, 21, .35); border: 2px solid var(--line); }
+  #knob { position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%;
+          background: rgba(231, 233, 238, .55); border: 2px solid rgba(255, 255, 255, .7); }
+  .hint { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom));
+          max-width: 46ch; margin: 0; padding: 6px 12px; border-radius: 12px; background: var(--surface);
+          color: var(--muted); font-size: 13px; text-align: right; pointer-events: none; }
+  @media (max-width: 600px) { #stick { width: 120px; height: 120px; } .hint { display: none; } }
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="Loft view"></canvas>
+<div class="bar">
+  <a class="btn" href="/" aria-label="Back to the XR Control Panel">‹ Panel</a>
+  <span id="status" class="pill" role="status">Connecting…</span>
+  <span class="spacer"></span>
+  <button id="stand" class="primary" hidden>Stand up</button>
+  <button id="fullscreen">Full screen</button>
+</div>
+<div id="stick" aria-label="Walk"><div id="knob"></div></div>
+<p class="hint">Drag to look around · stick to walk · tap a chair to sit · tap the bartender to say hello</p>
+<script src="/static/tablet.js"></script>
+</body>
+</html>

@@ -335,10 +335,23 @@ requiring Quest Home. Existing offline bundles remain usable. Quest firmware
 preflight stays Quest-only; Samsung firmware is not supported by that workflow.
 Wi-Fi panel pairing does not enable wireless ADB or imply Wi-Fi APK installation.
 
-The independent interactive Loft tablet client (own view/presence, touch movement,
-seating/drinking, microphone and result review) remains to be implemented. Browser
-panel access is not an interactive Loft client. Device installation and Wi-Fi
-acceptance require the tablet connected and its debugging prompt accepted.
+### Tablet Loft client
+
+**Join the Loft** on a tablet card (or `/tablet` in a paired browser) puts the tablet in
+the Loft as its own user. This PC runs the Loft's flat-screen renderer
+(`build/intel-xr-loft/intel_xr_loft_flat`, one per tablet, id `tablet-<serial>`) in the
+same presence folder as the headset Lofts, so headset users see the tablet user as a
+person and the tablet sees them. `tablet_client.py` relays it over one WebSocket: JPEG
+frames to the page (at most two unacknowledged, so slow Wi-Fi gets fewer fresh frames
+rather than lag) and validated input back. A renderer is stopped 20 s after its page
+closes; a second page for the same tablet replaces the first.
+
+Controls: drag to look, on-screen stick to walk, tap a chair to sit (or the bartender to
+say hello), Stand up. An Xbox (or other standard) controller paired with the tablet
+works too: left stick walks, right stick looks, A sits on the chair at the centre dot or
+greets the bartender, B stands up. Browsers expose controllers only to secure pages, so
+use the USB-opened page (`http://127.0.0.1`) or the HTTPS address on Wi-Fi, not plain
+HTTP. Not yet included: drinking from the tablet, microphone/voice.
 
 ### Per-device assistant controls and Tablets tab
 

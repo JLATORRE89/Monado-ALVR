@@ -42,6 +42,7 @@ from android_assistant import AndroidAssistant
 from web_proxy import ProxyManager
 from software_updates import UpdateLibrary
 from update_peers import Peers, ShareKeys, cert_fingerprint_file, pretty, share_listing
+from tablet_client import TabletClients, client_id, view_size
 
 import gpu_worker  # noqa: E402  optional add-on: remote shared GPU (Local AI Stack)
 
@@ -332,15 +333,19 @@ def headset_action(serial: str, action: str) -> dict:
             raise ValueError("Connect the device by USB to authorize Wi-Fi panel access")
         issue_usb_pairing(info, manual=True)
         return {"message": "Pairing page opened in the headset's browser; bookmark the panel for Wi-Fi use"}
-    if action == "panel-in-headset":
+    if action in ("panel-in-headset", "loft-on-tablet"):
         # Over USB only: the headset's own 127.0.0.1:<port> is forwarded to this panel, so the
-        # panel stays bound to localhost and nothing is exposed on the network.
+        # panel stays bound to localhost and nothing is exposed on the network. (127.0.0.1 also
+        # counts as a secure page, which the tablet Loft needs for game controllers.)
+        page = "/tablet" if action == "loft-on-tablet" else "/"
         port = int(CFG["port"])
         res = adb("-s", serial, "reverse", f"tcp:{port}", f"tcp:{port}")
         if res.returncode != 0:
             raise RuntimeError(res.stderr.strip() or "adb reverse failed (is the headset on USB?)")
         adb("-s", serial, "shell", "am", "start", "-a", "android.intent.action.VIEW",
-            "-d", shlex.quote(f"http://127.0.0.1:{port}/?device={DEVICE_IDS.issue(serial)}"))
+            "-d", shlex.quote(f"http://127.0.0.1:{port}{page}?device={DEVICE_IDS.issue(serial)}"))
+        if page == "/tablet":
+            return {"message": "Opened the Loft in the tablet's browser (over USB)"}
         return {"message": f"Opened the panel in the headset's browser (http://127.0.0.1:{port}/, over USB)"}
     raise ValueError(f"unknown action {action!r}")
 
@@ -1225,6 +1230,20 @@ UPDATES = UpdateLibrary(CFG.get("updates_dir", str(Path.home()/".local/share/xr-
 SHARE_KEYS = ShareKeys(CONFIG_PATH.parent / "update-share-keys.json")
 PEERS = Peers(CONFIG_PATH.parent / "update-peers.json", UPDATES)
 
+
+def flat_loft_env() -> dict:
+    """The tablet renderer joins the same presence folder as the headset Lofts (see xr-app.sh)."""
+    env = dict(os.environ)
+    env.setdefault("XR_LOFT_PRESENCE_DIR", str(Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+                                               / "xr-loft-presence"))
+    return env
+
+
+# Tablets join the Loft as their own users through a flat-screen renderer on this PC.
+TABLET_CLIENTS = TabletClients(
+    lambda: runtime_root() / "build/intel-xr-loft/intel_xr_loft_flat" if runtime_root() else None,
+    flat_loft_env, lambda: runtime_root() / "logs" if runtime_root() else None)
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "XRControlPanel/1"
 
@@ -1253,6 +1272,12 @@ class Handler(BaseHTTPRequestHandler):
             return False
         self.send(401, UNPAIRED_PAGE, "text/html; charset=utf-8")
         return False
+
+    def is_local(self) -> bool:
+        address = ipaddress.ip_address(self.client_address[0])
+        if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+            address = address.ipv4_mapped
+        return address.is_loopback
 
     def identity(self) -> str | None:
         """The headset this browser belongs to (Wi-Fi pairing grant or the USB device cookie);
@@ -1346,6 +1371,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json({"serial": me, "name": name or me, "role": "headset" if me else "operator"})
             if path in ("/", "/index.html"):
                 return self.send(200, (STATIC / "index.html").read_bytes(), STATIC_TYPES[".html"])
+            if path == "/tablet":
+                return self.send(200, (STATIC / "tablet.html").read_bytes(), STATIC_TYPES[".html"])
+            if path == "/api/tablet/status":
+                return self.json({"available": TABLET_CLIENTS.available(), "id": client_id(me, self.is_local()),
+                                  "sessions": TABLET_CLIENTS.status()})
+            if path == "/api/tablet/ws":
+                cid = client_id(me, self.is_local())
+                if not cid:
+                    return self.json({"error": "Pair this tablet with the panel first (Tablets tab)"}, 403)
+                q = parse_qs(url.query)
+                return TABLET_CLIENTS.serve(self, cid, view_size(q.get("w", [""])[0], q.get("h", [""])[0]))
             if path.startswith("/static/"):
                 name = path[len("/static/"):]
                 f = STATIC / name

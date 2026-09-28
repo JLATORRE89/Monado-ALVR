@@ -134,11 +134,12 @@ function headsetCard(h) {
     el("div", { class: "device-network" },
       fact("Wi-Fi IPv4", h.ip || "—"),
       fact("Wi-Fi IPv6", (h.ipv6 || []).join("\n") || "—"),
-      fact(h.is_tablet ? "Loft" : "ALVR", h.is_tablet ? "Tablet client pending" : alvr))));
+      fact(h.is_tablet ? "Loft" : "ALVR", h.is_tablet ? "Browser client (touch or Xbox controller)" : alvr))));
   if (h.is_quest || h.is_tablet) card.append(assistantControls(h));
   if (h.is_tablet) {
     card.append(el("div", { class: "actions" },
       h.awake ? null : actionButton("Wake", h.serial, "wake"),
+      actionButton("Join the Loft", h.serial, "loft-on-tablet", "btn primary"),
       actionButton("Open panel on tablet", h.serial, "panel-in-headset"),
       actionButton("Pair tablet for Wi-Fi", h.serial, "pair-wifi")));
     return card;
