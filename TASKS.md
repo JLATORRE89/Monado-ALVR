@@ -1,3 +1,19 @@
+> **Encoder re-open SIGBUS — root cause and fix (Claude, 2026-09-28):** the Arc A750 runs without
+> Resizable BAR (lspci: BAR 2 current 256MB, supports up to 8GB; BIOS F68a), so only 256 MB of VRAM
+> is CPU-visible; i915 debugfs showed visible_avail 39 MiB, and 0-7 MiB under load. The Intel media
+> driver maps and zero-fills buffers there per encoder; the dynamic-bitrate re-open (step 7) opened
+> the new encoder while the old one was alive, and the driver's first write faulted (gdb: memset
+> into an i915.gem mapping from vaEndPicture, first frame after ENCODER_REOPEN). Live crashes
+> 11:39:08 and 12:15:13 both came ~20 ms after a re-open at connection/app-start transitions.
+> Companion step 15 apply-alvr-render-reopen-drain.py: drain + free the old encoder before opening
+> the new one (fallback: reopen previous settings); rate control uses the configured refresh rate
+> (no re-opens on ALVR's 60 fps placeholder flips); diagnostic $XDG_RUNTIME_DIR/intel-xr-encoder-test-bps.
+> Controlled test on a separate instance (gdb, test Loft, main runtime + Loft also running): before,
+> SIGBUS at the 5th re-open (twice); after, 160 requests / 91 re-opens, 0 faults, 0 failed opens,
+> 73-91 ms each, visible_avail 0-7 MiB. Audit 15 steps: tree 49eed3c8 == alvr_render c36cdf9.
+> NOT yet verified: the new binary on the live runtime with the headset streaming (needs a runtime
+> restart, to be coordinated). Proper fix: enable Above 4G Decoding + Re-Size BAR in the BIOS.
+
 > **Codex follow-up (2026-09-28 12:38):** Claude's pending alvr.cpp refresh-rate fix
 > left untouched. Actual connected/awake Quest sample, 16:19:18–16:19:38 UTC:
 > 3 late warnings (13.89 ms), 20 encoder reports at 72 fps, active Quest decoder

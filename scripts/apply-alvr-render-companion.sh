@@ -25,6 +25,7 @@ HELPERS=(
   apply-alvr-render-alvr-abi.py            # 12 follow ALVR C API changes (no-op with the current header)
   apply-alvr-render-view-snapshot.py       # 13 on-demand view snapshot for the panel (Wi-Fi capture)
   apply-alvr-render-vbv.py                 # 14 rate-control buffer of INTEL_XR_VBV_FRAMES (sharper keyframes)
+  apply-alvr-render-reopen-drain.py        # 15 drain before encoder re-open; rate control at refresh rate
 )
 
 for helper in "${HELPERS[@]}"; do
