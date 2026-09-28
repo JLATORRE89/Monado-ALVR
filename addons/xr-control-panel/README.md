@@ -288,3 +288,16 @@ can only send voice/GPU requests for itself (others get 403) and only sees its o
 images and review pages; the PC's browser sees all and can target any headset. Capturing the view
 needs the headset on USB (ADB screenshot); the result is delivered over USB when connected, and
 otherwise waits in that headset's own panel page, which announces it.
+
+## Speech recognition on the headset
+
+**Speak a request** uses the browser's own speech recognition when it exists. Headset browsers
+often lack it (or it needs a cloud service); then the page records up to 8 s (Stop listening ends
+early) and the panel transcribes it on this PC with whisper.cpp (`POST /api/voice/transcribe`,
+`GET /api/voice/status`). Audio is kept only in memory/temporary files for the transcription,
+never stored or uploaded; silent clips are refused (Whisper invents words for silence).
+
+Setup (done on this PC): `build/whisper.cpp` (`cmake --build build --target whisper-cli`) and
+`models/whisper/ggml-base.en.bin` (sha256 a03779c8...), both under the runtime root; override
+with `whisper_cli` / `whisper_model` in the panel config. The microphone needs a secure page: over
+USB (`http://127.0.0.1`) it works; over plain Wi-Fi HTTP the browser blocks it.

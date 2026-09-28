@@ -973,6 +973,48 @@ def auto_pair_usb_worker():
         _pairing_wake.clear()
 
 
+# ---------------------------------------------------------------- local speech-to-text (whisper.cpp)
+# Fallback for headset browsers without built-in speech recognition: the page records a short clip
+# and the panel transcribes it on this PC. Audio is never stored or sent elsewhere.
+_whisper_lock = threading.Lock()
+
+
+def whisper_paths() -> tuple[str | None, str | None]:
+    root = runtime_root()
+    cli = CFG.get("whisper_cli") or (str(root / "build/whisper.cpp/build/bin/whisper-cli") if root else None)
+    model = CFG.get("whisper_model") or (str(root / "models/whisper/ggml-base.en.bin") if root else None)
+    ok = cli and model and os.access(cli, os.X_OK) and os.path.isfile(model)
+    return (cli, model) if ok else (None, None)
+
+
+def transcribe(audio: bytes) -> str:
+    cli, model = whisper_paths()
+    if not cli:
+        raise RuntimeError("Local speech recognition is not installed on this PC")
+    if not audio or len(audio) > 5 * 1024 * 1024:
+        raise ValueError("Record a spoken request of up to about 30 seconds")
+    with tempfile.TemporaryDirectory() as tmp:
+        src, wav = Path(tmp) / "clip", Path(tmp) / "clip.wav"
+        src.write_bytes(audio)
+        conv = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-i", str(src), "-t", "30", "-ar", "16000",
+                               "-ac", "1", str(wav)], capture_output=True, text=True, timeout=60)
+        if conv.returncode or not wav.is_file():
+            raise ValueError("The recording could not be read")
+        # Whisper invents words ("you", "Thank you.") for silence: require audible speech first.
+        vol = subprocess.run(["ffmpeg", "-v", "info", "-nostdin", "-i", str(wav), "-af", "volumedetect", "-f", "null", "-"],
+                             capture_output=True, text=True, timeout=60).stderr
+        peak = re.search(r"max_volume: (-?[\d.]+) dB", vol)
+        if not peak or float(peak.group(1)) < -40.0:
+            raise ValueError("The recording was silent; check the microphone (Test Quest microphone) and speak closer")
+        with _whisper_lock:  # CPU-heavy: one transcription at a time
+            res = subprocess.run([cli, "-m", model, "-f", str(wav), "-nt", "-np", "-t", str(min(8, os.cpu_count() or 4))],
+                                 capture_output=True, text=True, timeout=120)
+    text = " ".join(line.strip() for line in res.stdout.splitlines() if line.strip())
+    if res.returncode or not text or text.strip("[] ").upper() in ("BLANK_AUDIO", "SILENCE"):
+        raise ValueError("No speech was recognised; speak closer to the headset and try again")
+    return text
+
+
 def gpu_screen_request(serial, workflow, prompt):
     if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 2000:
         raise ValueError("Speak or type a request of at most 2000 characters")
@@ -1154,6 +1196,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         me = self.identity()
         try:
+            if path == "/api/voice/status":
+                return self.json({"available": whisper_paths()[0] is not None})
             if path == "/api/whoami":
                 name = next((d.get("model") for d in list_adb_devices() if d["serial"] == me), None) if me else None
                 return self.json({"serial": me, "name": name or me, "role": "headset" if me else "operator"})
@@ -1362,6 +1406,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/gpu/test":
                 acct = gpu_worker.account()
                 return self.json({"message": "Connected to the GPU worker", "account": acct})
+            if path == "/api/voice/transcribe":
+                length = int(self.headers.get("Content-Length", "0") or 0)
+                if length > 5 * 1024 * 1024:
+                    return self.json({"error": "Recording too long"}, 413)
+                return self.json({"text": transcribe(self.rfile.read(length))})
             if path == "/api/gpu/screen-request":
                 req = json.loads(self.body())
                 me = self.identity()

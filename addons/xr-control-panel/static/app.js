@@ -683,28 +683,76 @@ async function sendScreenRequest(button) {
 }
 $("#voiceSend").addEventListener("click", e => sendScreenRequest(e.currentTarget));
 const BrowserSpeech = window.SpeechRecognition || window.webkitSpeechRecognition;
-if (!BrowserSpeech || !window.isSecureContext) {
-  $("#voiceSpeak").disabled = true;
-  $("#voiceStatus").textContent = !window.isSecureContext ? "Voice needs a secure browser page. Use Open panel in headset over USB, or HTTPS. You can type a request here." : "Speech recognition is unavailable in this browser. You can type a request here.";
+// Headset browsers often have no speech recognition (or it needs a cloud service): then the page
+// records a short clip and the panel transcribes it on this PC (whisper.cpp); nothing is stored.
+let serverSpeech = false, voiceRecorder = null;
+const canRecord = () => window.isSecureContext && !!navigator.mediaDevices?.getUserMedia && !!window.MediaRecorder;
+function updateSpeakState() {
+  const ok = window.isSecureContext && (!!BrowserSpeech || (serverSpeech && canRecord()));
+  $("#voiceSpeak").disabled = !ok;
+  if (!window.isSecureContext)
+    $("#voiceStatus").textContent = "Voice needs a secure browser page. Use Open panel in headset over USB, or HTTPS. You can type a request here.";
+  else if (!ok)
+    $("#voiceStatus").textContent = "Speech recognition is unavailable in this browser. You can type a request here.";
+}
+api("/api/voice/status").then(s => { serverSpeech = !!s.available; updateSpeakState(); }).catch(() => {});
+updateSpeakState();
+async function recordAndTranscribe() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+  const chunks = [];
+  const recorder = new MediaRecorder(stream);
+  voiceRecorder = recorder; voiceCancelled = false;
+  recorder.ondataavailable = ev => { if (ev.data.size) chunks.push(ev.data); };
+  const stopped = new Promise(resolve => { recorder.onstop = resolve; });
+  recorder.start();
+  $("#voiceSpeak").disabled = true; $("#voiceStop").disabled = false;
+  $("#voiceStatus").textContent = "Listening… speak your request (up to 8 s), then press Stop listening.";
+  const timer = setTimeout(() => recorder.state === "recording" && recorder.stop(), 8000);
+  await stopped;
+  clearTimeout(timer);
+  stream.getTracks().forEach(track => track.stop());
+  voiceRecorder = null; $("#voiceStop").disabled = true; updateSpeakState();
+  if (voiceCancelled) return;
+  $("#voiceStatus").textContent = "Recognising your request…";
+  const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+  const res = await fetch("/api/voice/transcribe", { method: "POST", body: blob,
+    headers: { "Content-Type": "application/octet-stream" } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
+  $("#voiceRequest").value = data.text; $("#voiceStatus").textContent = `Heard: ${data.text}`;
+  sendScreenRequest($("#voiceSend"));
+}
+function fallbackToRecording() {
+  recordAndTranscribe().catch(err => { voiceRecorder = null; updateSpeakState(); $("#voiceStatus").textContent = `${err.message}. You can type your request.`; });
 }
 $("#voiceSpeak").addEventListener("click", () => {
-  if (!BrowserSpeech || voiceRecognition) return;
+  if (voiceRecognition || voiceRecorder) return;
   if (!$("#voiceHeadset").value || !$("#gpuWorkflow").value) return toast("Select a headset and image-analysis workflow first", "error");
   stopMicTest("Microphone test stopped for voice input.");
+  if (!BrowserSpeech) return fallbackToRecording();
   const recognition = new BrowserSpeech(); voiceRecognition = recognition; voiceCancelled = false;
   recognition.lang = navigator.language || "en-US"; recognition.interimResults = false; recognition.continuous = false;
   $("#voiceSpeak").disabled = true; $("#voiceStop").disabled = false; $("#voiceStatus").textContent = "Listening…";
+  let useFallback = false;
   recognition.onresult = e => {
     if (voiceCancelled) return;
     const transcript = e.results[0][0].transcript;
     $("#voiceRequest").value = transcript; $("#voiceStatus").textContent = `Heard: ${transcript}`;
     sendScreenRequest($("#voiceSend"));
   };
-  recognition.onerror = e => { $("#voiceStatus").textContent = `Speech recognition: ${e.error}. You can type your request.`; };
-  recognition.onend = () => { voiceRecognition = null; $("#voiceSpeak").disabled = false; $("#voiceStop").disabled = true; };
+  recognition.onerror = e => {
+    // The browser's recognizer may need a cloud service the headset cannot reach.
+    if (serverSpeech && canRecord() && ["network", "service-not-allowed", "language-not-supported"].includes(e.error)) useFallback = true;
+    else $("#voiceStatus").textContent = `Speech recognition: ${e.error}. You can type your request.`;
+  };
+  recognition.onend = () => {
+    voiceRecognition = null; $("#voiceSpeak").disabled = false; $("#voiceStop").disabled = true;
+    if (useFallback && !voiceCancelled) fallbackToRecording();
+  };
   try { recognition.start(); } catch (e) { recognition.onend(); $("#voiceStatus").textContent = e.message; }
 });
 $("#voiceStop").addEventListener("click", () => {
+  if (voiceRecorder && voiceRecorder.state === "recording") { voiceRecorder.stop(); return; } // finish and recognise
   voiceCancelled = true; voiceRecognition?.abort(); $("#voiceStatus").textContent = "Listening stopped; no request submitted.";
 });
 
@@ -790,5 +838,5 @@ $("#micTest").addEventListener("click", async () => {
   }
 });
 $("#micTestStop").addEventListener("click", () => stopMicTest("Microphone test stopped. Nothing was recorded or uploaded."));
-window.addEventListener("pagehide", () => { stopMicTest(); voiceCancelled = true; voiceRecognition?.abort(); });
+window.addEventListener("pagehide", () => { stopMicTest(); voiceCancelled = true; voiceRecognition?.abort(); if (voiceRecorder?.state === "recording") voiceRecorder.stop(); });
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopMicTest("Microphone test stopped because the page is hidden."); });

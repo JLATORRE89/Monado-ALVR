@@ -15,13 +15,13 @@ def _setup_fds(r, w):
 
 
 class Browser:
-    def __init__(self, profile, width=412, height=900):
+    def __init__(self, profile, width=412, height=900, extra_args=()):
         r1, w1 = os.pipe()  # we write commands -> chrome fd 3
         r2, w2 = os.pipe()  # chrome writes responses fd 4 -> we read
         self.proc = subprocess.Popen(
             ["google-chrome", "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
              f"--user-data-dir={profile}", f"--window-size={width},{height}", "--remote-debugging-pipe",
-             "about:blank"],
+             *extra_args, "about:blank"],
             pass_fds=(r1, w2, 3, 4), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             preexec_fn=lambda: _setup_fds(r1, w2))
         os.close(r1); os.close(w2)

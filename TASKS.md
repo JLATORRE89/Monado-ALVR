@@ -1,3 +1,9 @@
+> **Local speech-to-text (2026-09-28):** headset browsers without speech recognition record a clip
+> that the panel transcribes with whisper.cpp base.en (build/whisper.cpp, models/whisper). Verified:
+> endpoint 0.75 s on the JFK sample, silence/junk refused, headless Chrome with a fake microphone
+> (recognition disabled) -> transcript -> request reached GPU submission. NOT verified: the real
+> Quest microphone/browser, Wi-Fi voice (needs HTTPS for the mic).
+
 > **Voice with several headsets (2026-09-28):** automatic browser->headset identity (USB device
 > cookie from panel-opened links; Wi-Fi via USB pairing grant), per-headset isolation of voice/GPU
 > jobs, results and review pages (403/404 for other headsets), Wi-Fi-only result delivery ("ready"
