@@ -1,3 +1,12 @@
+> **CORRECTION (2026-09-28 11:45):** HEVC Main10 crashed the runtime (SIGBUS in iHD
+> vaEndPicture via avcodec_send_frame) when the headset connected; the Loft died with it and the
+> headset showed nothing. 10-bit REVERTED (session back to 8-bit HEVC; crashed config kept as
+> session.json.10bit-crashed-2026-09-28). The "0 late frames" figures below were measured with no
+> headset streaming. While streaming, ~36 frames/s are "late by 11.11 ms" - the same with the old
+> Loft 3e8016f (720 in 20 s) and the new one, so it predates the art pass (11.11 ms is a 90 Hz
+> period: check headset refresh vs the 72 Hz runtime/encoder). User saw the new art in the
+> headset and said it looked a lot better.
+>
 > **Loft quality pass (2026-09-28):** (3) Loft art pass, loft main 4367fc8: baked 4096² sun shadow
 > map (window grid + furniture shadows), furnishings' AO baked at start-up into a 5 cm ambient-cube
 > volume (compute shader), rounded club chairs, bevelled tables, leafy plants, bottles, bordered
