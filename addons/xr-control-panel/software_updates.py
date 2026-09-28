@@ -202,7 +202,7 @@ class UpdateLibrary:
 
     def device(self, serial, state='device'):
         dev=next((d for d in self.devices() if d['serial']==serial and d['state']==state),None)
-        if not dev:raise ValueError('Selected headset is not connected in the required mode: '+state)
+        if not dev:raise ValueError('Selected device is not connected in the required mode: '+state)
         return dev
 
     def identity(self, serial):
@@ -230,13 +230,13 @@ class UpdateLibrary:
     def start(self, ident, serial, confirmed):
         with self.lock:
             row=self.get(ident)
-            if confirmed is not True:raise ValueError('Confirm installation on the selected headset')
-            if any(j['serial']==serial and j['state'] in ('queued','running','awaiting_verification') for j in self.jobs.values()):raise ValueError('This headset already has an unfinished update job')
+            if confirmed is not True:raise ValueError('Confirm installation on the selected device')
+            if any(j['serial']==serial and j['state'] in ('queued','running','awaiting_verification') for j in self.jobs.values()):raise ValueError('This device already has an unfinished update job')
             if row['kind']=='firmware':
                 self.device(serial,'sideload')
                 if self.prepared.get((ident,serial),{}).get('expires',0)<time.time():raise ValueError('Check firmware compatibility while the headset is booted normally first')
                 self.prepared.pop((ident,serial),None)
-            else:self.identity(serial)
+            else:self.device(serial)
             job=dict(id=uuid.uuid4().hex,update=ident,serial=serial,label=row['label'],kind=row['kind'],state='queued',started=time.time(),message='Queued')
             self.jobs[job['id']]=job;self._save_jobs()
             threading.Thread(target=self._install,args=(job['id'],),daemon=True).start()
@@ -249,7 +249,7 @@ class UpdateLibrary:
         job=self.jobs[job_id]
         try:
             row=self.get(job['update']);path=self.file(row['id'])
-            self._set(job_id,state='running',message='Checking stored file, then transferring. Keep the headset connected.')
+            self._set(job_id,state='running',message='Checking stored file, then transferring. Keep the device connected.')
             if digest(path)!=row['sha256']:raise ValueError('Stored update checksum changed; upload a clean copy')
             args=('install','-r',str(path)) if row['kind']=='apk' else ('sideload',str(path))
             result=self.adb('-s',job['serial'],*args,timeout=1800)
@@ -271,12 +271,14 @@ class UpdateLibrary:
         with self.lock:
             job=self.jobs.get(job_id)
             if not job or job['state'] not in ('awaiting_verification','interrupted','failed'):raise ValueError('Job is not ready for verification')
-            row=self.get(job['update']);info=self.identity(job['serial'])
+            row=self.get(job['update'])
             if row['kind']=='firmware':
+                info=self.identity(job['serial'])
                 if info['build']!=row['version'] or info['model'] not in row['models'].split('|'):raise ValueError('Target firmware is not yet installed; check recovery/boot status on the headset')
             else:
+                self.device(job['serial'])
                 result=self.adb('-s',job['serial'],'shell','dumpsys','package',row['package'])
                 version=re.search(r'\bversionCode=(\d+)',result.stdout)
                 if result.returncode or not version or int(version[1])!=row['version_code']:raise ValueError('Installed APK version does not match the stored update')
-            self._set(job_id,state='verified',message='Installed version verified on the headset')
+            self._set(job_id,state='verified',message='Installed version verified on the device')
             return {'message':'Installed version verified'}

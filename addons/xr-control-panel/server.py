@@ -217,6 +217,7 @@ def headset_info(dev: dict) -> dict:
         "ip": kv.get("IP") or None,
         "ipv6": valid_ipv6_addresses(kv.get("IP6", "")),
         "is_quest": kv.get("METACAM", "").startswith("package:"),
+        "is_tablet": (kv.get("MODEL") or dev["model"]).upper() == "SM-X210",
         "recording": dev["serial"] in recordings,
     })
     return info
@@ -323,8 +324,10 @@ def headset_action(serial: str, action: str) -> dict:
         if not CFG.get("lan_access"):
             raise RuntimeError("turn on Wi-Fi access first (Settings, Panel access)")
         info = headset_info(require_headset(serial))
-        if not info.get("is_quest"):
-            raise ValueError("Wi-Fi panel pairing requires a Quest headset")
+        if not (info.get("is_quest") or info.get("is_tablet")):
+            raise ValueError("Wi-Fi panel pairing requires a supported headset or tablet")
+        if not info.get("usb_path"):
+            raise ValueError("Connect the device by USB to authorize Wi-Fi panel access")
         issue_usb_pairing(info, manual=True)
         return {"message": "Pairing page opened in the headset's browser; bookmark the panel for Wi-Fi use"}
     if action == "panel-in-headset":
@@ -941,7 +944,7 @@ def trust_usb_headset_streaming(info) -> dict | None:
 def auto_pair_usb_once():
     for device in list_adb_devices():
         # Positive USB transport evidence, successful Android debugging authorization,
-        # and the Quest system package are all required. Ignore phones, emulators and Wi-Fi ADB.
+        # and a supported Quest or SM-X210 are required. Ignore other phones, emulators and Wi-Fi ADB.
         if device["state"] != "device" or not device.get("usb_path") or not SERIAL_RE.fullmatch(device["serial"]):
             continue
         serial = device["serial"]
@@ -954,9 +957,9 @@ def auto_pair_usb_once():
             info = headset_info(device)
         except Exception:
             continue  # disconnected/offline: must not block other headsets
-        if not info.get("is_quest"):
+        if not (info.get("is_quest") or info.get("is_tablet")):
             continue
-        if streaming and info.get("client_installed"):
+        if streaming and info.get("is_quest") and info.get("client_installed"):
             try:
                 trust_usb_headset_streaming(info)
             except Exception:

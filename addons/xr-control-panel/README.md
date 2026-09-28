@@ -324,3 +324,18 @@ Setup (done on this PC): `build/whisper.cpp` (`cmake --build build --target whis
 `models/whisper/ggml-base.en.bin` (sha256 a03779c8...), both under the runtime root; override
 with `whisper_cli` / `whisper_model` in the panel config. The microphone needs a secure page: over
 USB (`http://127.0.0.1`) it works; over plain Wi-Fi HTTP the browser blocks it.
+
+### Galaxy Tab A9+ (SM-X210) groundwork
+
+An authorized SM-X210 USB connection can pair its panel browser for later Wi-Fi
+access using the existing per-device credential. Its card offers Open panel, Wake
+and Pair tablet for Wi-Fi; it is not registered as an ALVR headset. APK updates
+use serial-scoped Android installation and installed-version verification without
+requiring Quest Home. Existing offline bundles remain usable. Quest firmware
+preflight stays Quest-only; Samsung firmware is not supported by that workflow.
+Wi-Fi panel pairing does not enable wireless ADB or imply Wi-Fi APK installation.
+
+The independent interactive Loft tablet client (own view/presence, touch movement,
+seating/drinking, microphone and result review) remains to be implemented. Browser
+panel access is not an interactive Loft client. Device installation and Wi-Fi
+acceptance require the tablet connected and its debugging prompt accepted.

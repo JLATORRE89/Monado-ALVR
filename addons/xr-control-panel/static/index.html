@@ -32,7 +32,7 @@
   <section id="tab-updates" class="tab" role="tabpanel" hidden>
     <div class="card">
       <h2>Software updates</h2>
-      <p class="muted">Updates are stored on this PC, then installed on headsets without internet access.</p>
+      <p class="muted">Updates are stored on this PC, then installed on headsets and Android tablets without internet access. Samsung system firmware is not handled by the Quest firmware workflow.</p>
       <h3 class="subhead">Import an update bundle</h3>
       <p>Choose the .tar.gz bundle made by XR Downloader. The bundle lists its files and checksums; each file is checked as it is imported.</p>
       <label class="field"><span>XR Downloader bundle (.tar.gz)</span><input id="bundleFile" type="file" accept=".gz,.tgz"></label>
@@ -53,7 +53,7 @@
         <p id="sourcePickerInfo" class="muted" role="status">Pick an app here. No internet connection or download details are needed on this PC.</p>
         <details id="sourceAdvanced"><summary>Advanced: custom download source</summary>
           <label class="field"><span>Name in the download list</span><input id="sourceName"></label>
-          <label class="field"><span>Type</span><select id="sourceKind"><option value="apk">Quest app</option><option value="firmware">Quest firmware</option></select></label>
+          <label class="field"><span>Type</span><select id="sourceKind"><option value="apk">Android app</option><option value="firmware">Quest firmware</option></select></label>
           <label class="field"><span>Version (optional label)</span><input id="sourceVersion"></label>
           <label class="field"><span>Direct download URL</span><input id="sourceUrl" type="url" placeholder="https://…/release.apk"></label>
           <label class="field"><span>SHA-256 from your trusted source</span><input id="sourceHash" maxlength="64"></label>
@@ -64,7 +64,7 @@
 
       <details class="add-entry"><summary>Store an update file directly</summary>
         <p>Already have an APK or firmware file? Store it here without XR Downloader.</p>
-        <label class="field"><span>Update type</span><select id="updateKind"><option value="apk">Quest app (.apk)</option><option value="firmware">Quest system firmware (.zip)</option></select></label>
+        <label class="field"><span>Update type</span><select id="updateKind"><option value="apk">Android app (.apk)</option><option value="firmware">Quest system firmware (.zip)</option></select></label>
         <label class="field"><span>Expected SHA-256 (optional, from your trusted source)</span><input id="updateHash" maxlength="64" placeholder="64-character file checksum"></label>
         <label class="field"><span>Update file</span><input type="file" id="updateFile" accept=".apk,.zip"></label>
         <div class="actions"><button class="btn primary" id="updateUpload">Store for offline use</button></div>
@@ -263,6 +263,6 @@
 </main>
 
 <div id="toasts" class="toasts" aria-live="polite"></div>
-<script src="/static/app.js?v=20260928-app-picker"></script>
+<script src="/static/app.js?v=20260928-tablet-panel"></script>
 </body>
 </html>

@@ -110,6 +110,7 @@ function actionButton(label, serial, action, cls = "btn", extra = {}) {
 function headsetCard(h) {
   const badges = [el("span", { class: "badge accent" }, h.transport === "wifi" ? "ADB Wi‑Fi" : h.transport === "usb" ? "USB" : "ADB")];
   if (h.state !== "device") badges.push(el("span", { class: "badge warn" }, h.state));
+  else if (h.is_tablet) badges.push(el("span", { class: "badge accent" }, "Tablet"));
   else if (!h.is_quest) badges.push(el("span", { class: "badge" }, "Not a Quest"));
   if (h.recording) badges.push(el("span", { class: "badge bad" }, "● Recording"));
 
@@ -120,7 +121,7 @@ function headsetCard(h) {
 
   if (h.state !== "device") {
     card.append(el("p", { class: "muted" }, h.state === "unauthorized"
-      ? "Put on the headset and allow USB debugging for this computer." : `ADB state: ${h.state}`));
+      ? "Unlock the device and allow USB debugging for this computer." : `ADB state: ${h.state}`));
     return card;
   }
   const alvr = (h.alvr || []).map(a => `${a.name} (${a.state || "?"})`).join(", ") || "—";
@@ -128,11 +129,18 @@ function headsetCard(h) {
     el("div", { class: "device-status" },
       fact("Battery", h.battery == null ? "—" : `${h.battery}%${h.charging ? " ⚡" : ""}`),
       fact("Display", h.awake ? "Awake" : "Asleep"),
-      fact("Client", h.client_installed ? (h.client_running ? "Running" : "Installed") : "Not installed")),
+      fact("Client", h.is_tablet ? "Panel browser" : h.client_installed ? (h.client_running ? "Running" : "Installed") : "Not installed")),
     el("div", { class: "device-network" },
       fact("Wi-Fi IPv4", h.ip || "—"),
       fact("Wi-Fi IPv6", (h.ipv6 || []).join("\n") || "—"),
-      fact("ALVR", alvr))));
+      fact(h.is_tablet ? "Loft" : "ALVR", h.is_tablet ? "Tablet client pending" : alvr))));
+  if (h.is_tablet) {
+    card.append(el("div", { class: "actions" },
+      h.awake ? null : actionButton("Wake", h.serial, "wake"),
+      actionButton("Open panel on tablet", h.serial, "panel-in-headset"),
+      actionButton("Pair tablet for Wi-Fi", h.serial, "pair-wifi")));
+    return card;
+  }
   if (!h.is_quest) return card;
 
   card.append(el("div", { class: "actions" },
