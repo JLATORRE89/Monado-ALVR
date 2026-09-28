@@ -162,7 +162,11 @@ textarea { resize: vertical; }
 .add-entry .actions { margin-top: 12px; }
 .add-entry input, .add-entry select { background: var(--surface); }
 a.btn { text-decoration: none; }
-.step-note { margin: 4px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); color: var(--text); }
+.steps { margin: 4px 0 8px; padding: 12px 14px 12px 34px; border-radius: 10px; background: var(--accent-soft); color: var(--text); }
+.steps li { margin: 6px 0; line-height: 1.45; }
+.steps li::marker { font-weight: 700; color: var(--accent); }
+.steps .actions { margin: 10px 0 4px -20px; }
+.subhead { font-size: 1rem; margin: 18px 0 4px; }
 input[type=file] { width: 100%; min-height: 52px; padding: 8px; border: 1px dashed var(--line); border-radius: 12px;
   background: var(--surface); color: var(--muted); font: 1rem var(--font); }
 input[type=file]::file-selector-button { min-height: 36px; margin-right: 12px; padding: 6px 14px; border-radius: 10px;
