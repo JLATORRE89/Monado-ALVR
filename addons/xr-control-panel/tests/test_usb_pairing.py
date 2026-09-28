@@ -21,6 +21,7 @@ class PairingTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.path = Path(self.tmp.name)
+        (self.path / 'config.json').write_text(json.dumps({'updates_dir': str(self.path / 'updates')}))
         self.now = 1000.0
         self.registry = UsbPairing(self.path / 'pairs.json', clock=lambda: self.now)
         self.env = patch.dict(os.environ, XR_PANEL_CONFIG=str(self.path / 'config.json'))

@@ -673,3 +673,23 @@ Operator chose to extend the C Loft (not Godot/Unity). Plan:
 - [ ] Present third-party desktop Python application windows on an interactive surface inside the Loft/headset. This is separate from launching scripts on the PC.
 - [ ] Select a window capture/presentation mechanism and map Quest controller input to pointer/keyboard input, including focus and returning to Loft.
 - [ ] Verify a basic third-party Python GUI/pygame app can be seen and operated entirely in the headset, with clean exit and useful failure feedback. Preserve native OpenXR mini-game support.
+
+## Offline updates, XR Downloader, captures, defaults and voice (Codex, 2026-09-27)
+
+- Installed Software updates tab: streamed APK/OTA storage, verified metadata/hashes, per-headset installation jobs, explicit firmware USB preflight/recovery sideload and post-boot verification. No actual firmware was flashed.
+- Added independent addons/xr-downloader (Python 3.11+, Linux/Windows launchers). Panel exports supported-download JSON with direct URLs and SHA-256. Downloader verifies every file, makes gzip-level-9 tar.gz; offline panel import stages and validates everything before publication. Native Windows acceptance remains pending. Configure trusted download definitions; no app-store feed is invented.
+- Capture export: individual originals or explicitly selected files (up to 200; none selected by default) as max-compression tar.gz, preserving source files. Settings: selected/default preview and Restore All for editable runtime keys only, from committed runtime defaults; no automatic restart.
+- GPU screen voice feature: tap-to-speak/typed dog, ball, chair, glass-cup prompts; selected-headset capture; configured single-image workflow; durable polling; result image copy and browser review on the same headset. Current panel has no GPU host/key configured, so live provider detection and Quest microphone/review are NOT verified. No remote Local AI Stack server code changed.
+- Verification: focused update safety tests, downloader → source shutdown → offline import, invalid/traversal/incomplete bundle rejection, real ALVR APK inspection, capture archive/filter/symlink tests, selected/all reset preservation tests, voice routing/target delivery tests. Browser checks at 320/412/1440px, simulated speech routing, menu regression passed. No actual headset install, reset-to-default or GPU submission was used as a test.
+
+### Remaining integration acceptance
+- [ ] Configure the GPU worker through the panel using an authorized account key and a real object-detection/annotation workflow; test dogs, balls, chairs and glass cups against known screenshots.
+- [ ] Verify real Quest microphone recognition, screenshot visibility (including passthrough limitations), image delivery and review. Native in-Loft speech input is separate from this browser interface.
+- [ ] Run XR Downloader on Windows with the same JSON and import its archive on the offline panel.
+- [ ] Exercise APK upgrade and firmware recovery with approved release files in a controlled device test; confirm final versions, preserving user data.
+
+### Future item: live video-feed streaming
+- [ ] Accept a live video feed and display it in the headset/Loft. Scope and source protocols remain to be chosen.
+- [ ] Plan optional voice-requested analysis of current frames, return annotations for review, and validate latency, reconnect behavior and access controls. Future work only; not implemented in this change.
+
+- Selection correction verified: unchecked captures are omitted from archives; export is disabled with no selection. Legacy bulk GET export was removed.

@@ -210,7 +210,7 @@ def _png_reference_bundle(src: Path) -> bytes:
         return buf.read_bytes()
 
 
-def submit(workflow: str, prompt: str, source: Path | None, source_label: str = "") -> dict:
+def submit(workflow: str, prompt: str, source: Path | None, source_label: str = "", review_serial: str | None = None) -> dict:
     available = workflows()
     if workflow not in available:
         raise GpuWorkerError("that workflow is not offered by this GPU worker", 400)
@@ -224,7 +224,8 @@ def submit(workflow: str, prompt: str, source: Path | None, source_label: str = 
     request_id = str(uuid.uuid4())
     record = {"request_id": request_id, "workflow": workflow, "prompt": prompt, "source": source_label,
               "asset_id": None, "job_id": None, "status": "uploading" if source else "submitting",
-              "created": time.time(), "outputs": [], "error": ""}
+              "created": time.time(), "outputs": [], "error": "",
+              "review_serial": review_serial, "review_state": "waiting" if review_serial else None}
     with _lock:
         jobs = _jobs()
         jobs.append(record)

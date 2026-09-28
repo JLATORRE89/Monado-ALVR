@@ -24,10 +24,48 @@
   <button role="tab" data-tab="streaming">Streaming</button>
   <button role="tab" data-tab="settings">Settings</button>
   <button role="tab" data-tab="devices">Approved devices</button>
+  <button role="tab" data-tab="updates" aria-selected="false">Software updates</button>
   <button role="tab" data-tab="gpu">GPU Worker</button>
 </nav>
 
 <main>
+  <section id="tab-updates" class="tab" role="tabpanel" hidden>
+    <div class="card">
+      <h2>Software updates</h2>
+      <details class="add-entry"><summary>Supported downloads and XR Downloader</summary>
+        <p>Add each supported application or firmware download with a direct source URL and trusted SHA-256. Export the list, run XR Downloader on any online Linux or Windows PC, then import its completed tar.gz below. XR Downloader runs independently of this panel.</p>
+        <label class="field"><span>Application or firmware name</span><input id="sourceName"></label>
+        <label class="field"><span>Type</span><select id="sourceKind"><option value="apk">Quest app</option><option value="firmware">Quest firmware</option></select></label>
+        <label class="field"><span>Version (optional label)</span><input id="sourceVersion"></label>
+        <label class="field"><span>Direct download URL</span><input id="sourceUrl" type="url" placeholder="https://…/release.apk"></label>
+        <label class="field"><span>SHA-256 from your trusted source</span><input id="sourceHash" maxlength="64"></label>
+        <div class="actions"><button class="btn" id="sourceSave">Save supported download</button><a class="btn" href="/api/updates/export" download="xr-downloads.json">Export download list (JSON)</a><a class="btn" href="/api/updates/downloader" download="XR-Downloader.zip">Get XR Downloader (Linux / Windows)</a></div>
+        <div id="updateSources"></div>
+      </details>
+      <label class="field"><span>XR Downloader bundle (.tar.gz)</span><input id="bundleFile" type="file" accept=".gz,.tgz"></label>
+      <button class="btn primary" id="bundleImport">Import offline bundle</button>
+      <p>Store Quest app and system updates here, then install them without internet access. Files stay on this PC for reuse or download to another offline panel.</p>
+      <label class="field"><span>Update type</span><select id="updateKind"><option value="apk">Quest app (.apk)</option><option value="firmware">Quest system firmware (.zip)</option></select></label>
+      <label class="field"><span>Expected SHA-256 (optional, from your trusted source)</span><input id="updateHash" maxlength="64" placeholder="64-character file checksum"></label>
+      <label class="field"><span>Update file</span><input type="file" id="updateFile" accept=".apk,.zip"></label>
+      <div class="actions"><button class="btn primary" id="updateUpload">Store for offline use</button><button class="btn" id="updateRefresh">Refresh</button></div>
+      <p id="updateStorageStatus" class="muted" role="status"></p>
+    </div>
+    <div class="card">
+      <h2>Install a stored update</h2>
+      <label class="field"><span>Headset</span><select id="updateHeadset"></select></label>
+      <p class="muted">App updates preserve app data and need an authorized ADB connection. Android checks app signatures and version rules. Standalone APK files are supported.</p>
+      <details><summary>Quest system firmware</summary>
+        <p>Use an official, unmodified Meta OTA package for your headset. Connect USB while the headset is running normally, then choose Check firmware compatibility. Charge to at least 50%.</p>
+        <p>After the check, power off the headset, hold Power + Volume Down, and select Sideload update. Refresh this list and select the same headset in sideload mode. Then choose Install stored update. Keep USB connected until recovery finishes. Boot normally and choose Verify installed version.</p>
+        <p>The panel checks OTA model/build metadata and file integrity. The headset recovery verifies the firmware signature. A matching checksum alone does not establish that a file came from Meta. Packages that wipe data or downgrade firmware are rejected.</p>
+        <p><a href="https://www.meta.com/help/quest/software_update/" target="_blank" rel="noopener">Meta’s online software update tool</a> is also available when internet access is available.</p>
+      </details>
+      <p id="updatePreparation" role="status"></p>
+      <div id="updateLibrary"></div>
+    </div>
+    <div class="card"><h2>Update history</h2><div id="updateJobs" aria-live="polite"></div></div>
+  </section>
   <section id="tab-headsets" class="tab" role="tabpanel">
     <div class="section-head">
       <h1>Headsets</h1>
@@ -45,6 +83,11 @@
         <label class="btn primary upload">Upload pictures or videos<input type="file" id="uploadMedia" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime,video/x-matroska,.mkv" hidden></label>
       </div>
     </div>
+    <form id="captureExportForm" action="/api/captures/export" method="post">
+      <input type="hidden" name="selection" id="captureSelectionValue">
+      <button type="submit" class="btn" id="captureExport" disabled>Export selected captures (.tar.gz)</button>
+      <span class="muted" id="captureSelectionCount">0 selected</span>
+    </form>
     <div id="captures" class="gallery"></div>
   </section>
 
@@ -115,6 +158,8 @@
       <div id="settingEditor"></div>
       <div class="actions">
         <button class="btn primary" id="saveSetting" disabled>Save setting</button>
+        <button class="btn" id="restoreSetting" disabled>Restore selected to default</button>
+        <button class="btn danger" id="restoreAllSettings" data-confirm="Restore all editable runtime settings to the committed defaults? This will replace your custom runtime settings. Pairings, update files, captures and Loft menu entries are kept.">Restore All to Default</button>
         <button class="btn" id="restartRuntime" data-confirm="Restart the runtime? A connected headset will reconnect.">Restart runtime</button>
         <button class="btn" id="rebuildRuntime" data-confirm="Rebuild the runtime (re-apply companion patches and build incrementally)? Takes a few minutes; restart the runtime afterwards.">Rebuild runtime</button>
       </div>
@@ -138,6 +183,16 @@
     </div>
     <div class="card">
       <h2>New job</h2>
+      <details class="add-entry"><summary>Ask by voice about my current screen</summary>
+        <p>For example: “Capture my current screen and find all dogs on screen. Push the result back to my headset for review.” Select an image-analysis workflow below that returns an annotated image.</p>
+        <label class="field"><span>Headset to capture and return results to</span><select id="voiceHeadset"></select></label>
+        <div class="actions" id="voiceExamples"><button class="btn small" data-find="dogs">Find dogs</button><button class="btn small" data-find="a ball">Find a ball</button><button class="btn small" data-find="a chair">Find a chair</button><button class="btn small" data-find="a glass cup">Find a glass cup</button></div>
+        <p class="muted">Say “Find a ball in my current field of view,” “Find a chair,” or “Find a glass cup.” Analysis uses what the headset screenshot contains; passthrough visibility depends on the headset’s capture support.</p>
+        <label class="field"><span>Your request</span><textarea id="voiceRequest" maxlength="2000" placeholder="Find all dogs and mark them in the captured image"></textarea></label>
+        <div class="actions"><button class="btn primary" id="voiceSpeak">Speak a request</button><button class="btn" id="voiceStop" disabled>Stop listening</button><button class="btn" id="voiceSend">Capture and send request</button></div>
+        <p id="voiceStatus" role="status" class="muted"></p>
+        <p class="muted">Speech uses your browser’s recognition service, which may require internet. After you finish speaking, the request is submitted automatically. Results are copied to Pictures on the selected headset and opened there for review.</p>
+      </details>
       <label class="field"><span>Workflow</span><select id="gpuWorkflow"><option value="">Load workflows…</option></select></label>
       <label class="field"><span>Source capture (optional for text-only workflows)</span><select id="gpuSource"><option value="">None</option></select></label>
       <label class="field"><span>Prompt</span><textarea id="gpuPrompt" rows="3" maxlength="2000" placeholder="Describe the result you want"></textarea></label>

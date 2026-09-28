@@ -60,7 +60,8 @@ function showTab(name) {
   if (name === "streaming") { loadClients(); loadLoftMenu(); refreshApkHeadsets(); }
   if (name === "settings") { loadSettings(); loadPanelAccess(); }
   if (name === "devices") loadApproved();
-  if (name === "gpu") loadGpu();
+  if (name === "gpu") { loadGpu(); queueMicrotask(refreshVoiceHeadsets); }
+  if (name === "updates") queueMicrotask(loadUpdates);
 }
 for (const b of $$(".tabs button")) b.addEventListener("click", () => showTab(b.dataset.tab));
 
@@ -180,6 +181,7 @@ async function loadCaptures() {
   try {
     const data = await api("/api/captures" + (headset ? `?headset=${encodeURIComponent(headset)}` : ""));
     refreshCaptureFilter(data.captures.map(c => c.headset));
+
     const items = data.captures.map(c => {
       const url = `/captures/${encodeURIComponent(c.headset)}/${encodeURIComponent(c.file)}`;
       const media = c.type === "video"
@@ -188,9 +190,10 @@ async function loadCaptures() {
       const when = new Date(c.mtime * 1000).toLocaleString();
       return el("figure", { class: "media" }, media,
         el("figcaption", { class: "meta" },
+          el("label", { class: "check" }, el("input", { type: "checkbox", name: "capturePick", dataset: { headset: c.headset, file: c.file }, onchange: updateCaptureSelection }), "Select for export"),
           el("span", {}, el("strong", {}, knownHeadsets.get(c.headset) || c.headset), el("br"), when),
           el("span", { class: "actions" },
-            el("a", { href: url, download: c.file }, "Download"),
+            el("a", { href: url + "?download=1", download: c.file }, "Export file"),
             c.type === "video" && !c.file.includes("-headset") ? el("button", { class: "btn small",
               onclick: e => run(e.currentTarget, () => api("/api/captures/transcode", { method: "POST",
                 json: { headset: c.headset, file: c.file, where: "auto" } })) }, "Prepare for headset") : null,
@@ -203,6 +206,7 @@ async function loadCaptures() {
               }) }, "Delete"))));
     });
     $("#captures").replaceChildren(...(items.length ? items : [el("div", { class: "card empty" }, "No captures yet.")]));
+    updateCaptureSelection();
   } catch (e) {
     toast(e.message, "error");
   }
@@ -268,6 +272,7 @@ function renderSetting() {
   const key = $("#settingSelect").value;
   const editor = $("#settingEditor");
   $("#saveSetting").disabled = !key;
+  $("#restoreSetting").disabled = !key || !(key in (settings.defaults || {}));
   if (!key) { editor.replaceChildren(); return; }
   const value = settings.values[key];
   const type = settings.types[key];
@@ -275,7 +280,7 @@ function renderSetting() {
     ? el("label", { class: "switch" }, el("input", { type: "checkbox", id: "settingValue", checked: value === true }), "Enabled")
     : el("label", { class: "field" }, el("span", {}, `Value (${type})`),
         el("input", { type: type === "int" ? "number" : "text", id: "settingValue", value: String(value) }));
-  editor.replaceChildren(input);
+  editor.replaceChildren(input, el("p", { class: "muted" }, `Default: ${String(settings.defaults?.[key] ?? "unavailable")}`));
 }
 $("#settingSelect").addEventListener("change", renderSetting);
 $("#saveSetting").addEventListener("click", (ev) => run(ev.currentTarget, async () => {
@@ -371,6 +376,8 @@ function renderGpuJobs(jobs) {
     el("div", {}, el("strong", {}, j.workflow), " · ", el("span", { class: "muted" }, new Date(j.created * 1000).toLocaleString())),
     el("div", { class: "muted" }, j.source ? `Source: ${j.source}` : "No source", j.prompt ? ` · “${j.prompt}”` : ""),
     el("div", {}, "Status: ", el("strong", {}, j.status), j.error ? el("span", { class: "danger-text" }, ` — ${j.error}`) : null),
+    j.review_serial ? el("div", {}, `Headset review: ${j.review_state || "waiting"}`, j.review_error ? ` — ${j.review_error}` : "",
+      j.review_state === "failed" ? el("button", { class: "btn small", onclick: e => run(e.currentTarget, () => api("/api/gpu/retry-review", { method: "POST", json: { request_id: j.request_id } })) }, "Retry headset review") : null) : null,
     j.outputs && j.outputs.length ? el("div", {}, "Saved to Captures: ",
       ...j.outputs.map(f => el("a", { href: `/captures/gpu-worker/${encodeURIComponent(f)}`, target: "_blank", rel: "noopener" }, f, " "))) : null,
     ["complete", "failed", "cancelled"].includes(j.status) && (j.outputs || []).length ? null :
@@ -535,3 +542,149 @@ $("#revokePairing").addEventListener("click", e => run(e.currentTarget, async ()
 }));
 
 setInterval(() => { if (!$("#tab-settings").hidden) loadPanelAccess(); }, 5000);
+
+// ---------------------------------------------------------------- offline software updates
+let updatesBusy = false;
+async function loadUpdates() {
+  if (updatesBusy) return;
+  updatesBusy = true;
+  try {
+    const data = await api("/api/updates");
+    $("#updateSources").replaceChildren(...data.sources.map(a => el("div", { class: "update-item" },
+      el("strong", {}, `${a.name} ${a.version || ""}`), el("p", { class: "muted" }, a.url),
+      el("button", { class: "btn danger", "data-confirm": `Remove ${a.name} from the exported download list?`, onclick: e => run(e.currentTarget, async () => {
+        const r = await api("/api/updates/remove-source", { method: "POST", json: { sha256: a.sha256 } }); await loadUpdates(); return r;
+      }) }, "Remove from download list"))));
+    const select = $("#updateHeadset"), selected = select.value;
+    select.replaceChildren(...data.devices.map(d => el("option", { value: d.serial }, `${d.model || "Headset"} (${d.serial}) · ${d.state}`)));
+    if ([...select.options].some(o => o.value === selected)) select.value = selected;
+    $("#updateStorageStatus").textContent = data.apk_inspection_available ? "Stored updates are available offline. Maximum file size: 16 GiB." : "APK inspection needs Android SDK aapt2 on this PC. Firmware storage is available.";
+    $("#updateLibrary").replaceChildren(...(data.updates.length ? data.updates.map(u => {
+      const invoke = (button, action, extra = {}) => run(button, async () => {
+        const result = await api(`/api/updates/${action}`, { method: "POST", json: { id: u.id, serial: select.value, ...extra } });
+        if (action === "prepare") $("#updatePreparation").textContent = result.message;
+        else await loadUpdates();
+        return result;
+      });
+      return el("article", { class: "update-item" }, el("h3", {}, `${u.label} · ${u.version}`),
+        el("p", { class: "muted" }, `${u.kind === "apk" ? u.package : "Firmware for " + u.models} · ${Math.round(u.size / 1024 / 1024)} MiB · ${u.filename}`),
+        el("details", {}, el("summary", {}, "File checksum"), el("code", {}, u.sha256)),
+        el("div", { class: "actions" },
+          u.kind === "firmware" ? el("button", { class: "btn", onclick: e => invoke(e.currentTarget, "prepare") }, "Check firmware compatibility") : null,
+          el("button", { class: "btn primary", onclick: e => {
+            if (!select.value) return toast("Connect and select a headset first", "error");
+            if (confirm(`Install ${u.label} ${u.version} on ${select.value}? ${u.kind === "firmware" ? "This changes Quest system software. Keep USB connected until recovery completes." : "The app may close during its update."}`)) invoke(e.currentTarget, "install", { confirmed: true });
+          } }, "Install stored update"),
+          el("button", { class: "btn", onclick: () => {
+            $("#sourceName").value = u.label; $("#sourceKind").value = u.kind; $("#sourceVersion").value = u.version;
+            $("#sourceHash").value = u.sha256; $("#sourceUrl").value = "";
+            $("#sourceName").closest("details").open = true; $("#sourceUrl").focus();
+          } }, "Set download source"),
+          el("a", { class: "btn", href: `/api/updates/${u.id}/download`, download: u.filename }, "Download copy"),
+          el("button", { class: "btn danger", "data-confirm": `Remove stored ${u.filename}? Installed software will stay on headsets.`, onclick: e => invoke(e.currentTarget, "remove") }, "Remove stored file")));
+    }) : [el("p", { class: "muted" }, "No updates stored yet.")]));
+    $("#updateJobs").replaceChildren(...(data.jobs.length ? data.jobs.map(j => el("article", { class: "update-item" },
+      el("strong", {}, `${j.label} · ${j.serial} · ${j.state.replaceAll("_", " ")}`), el("p", {}, j.message),
+      ["awaiting_verification", "interrupted", "failed"].includes(j.state) ? el("div", { class: "actions" },
+        ...[["verify", "Verify installed version"], ["close-job", "Close without verification"]].map(([action, text]) => el("button", {
+          class: "btn", "data-confirm": action === "close-job" ? "Close this job without verifying success? Check the headset before retrying." : null,
+          onclick: e => run(e.currentTarget, async () => { const r = await api(`/api/updates/${action}`, { method: "POST", json: { job: j.id } }); await loadUpdates(); return r; })
+        }, text))) : null)) : [el("p", { class: "muted" }, "No update jobs yet.")]));
+  } catch (e) { toast(e.message, "error"); }
+  finally { updatesBusy = false; }
+}
+$("#updateRefresh").addEventListener("click", loadUpdates);
+$("#updateUpload").addEventListener("click", e => run(e.currentTarget, async () => {
+  const file = $("#updateFile").files[0];
+  if (!file) throw new Error("Choose an update file first");
+  $("#updateStorageStatus").textContent = "Uploading and checking the file…";
+  const result = await api("/api/updates/upload", { method: "POST", body: file, headers: {
+    "X-Filename": encodeURIComponent(file.name), "X-Update-Kind": $("#updateKind").value, "X-SHA256": $("#updateHash").value.trim()
+  } });
+  $("#updateFile").value = ""; await loadUpdates(); return result;
+}));
+setInterval(() => { if (!$("#tab-updates").hidden) loadUpdates(); }, 5000);
+
+$("#sourceSave").addEventListener("click", e => run(e.currentTarget, async () => {
+  const result = await api("/api/updates/source", { method: "POST", json: {
+    name: $("#sourceName").value.trim(), kind: $("#sourceKind").value, version: $("#sourceVersion").value.trim(),
+    url: $("#sourceUrl").value.trim(), sha256: $("#sourceHash").value.trim().toLowerCase()
+  } }); await loadUpdates(); return result;
+}));
+$("#bundleImport").addEventListener("click", e => run(e.currentTarget, async () => {
+  const file = $("#bundleFile").files[0];
+  if (!file) throw new Error("Choose the tar.gz file from XR Downloader first");
+  $("#updateStorageStatus").textContent = "Importing and validating the complete offline bundle…";
+  const result = await api("/api/updates/import", { method: "POST", body: file });
+  $("#bundleFile").value = ""; await loadUpdates(); return result;
+}));
+
+for (const [id, all] of [["#restoreSetting", false], ["#restoreAllSettings", true]]) {
+  $(id).addEventListener("click", e => run(e.currentTarget, async () => {
+    const key = all ? "*" : $("#settingSelect").value;
+    const r = await api("/api/config/restore", { method: "POST", json: { key } });
+    await loadSettings(); return r;
+  }));
+}
+
+// Tap-to-speak is limited to the selected capture-analysis-return workflow.
+let voiceRecognition = null, voiceCancelled = false;
+function refreshVoiceHeadsets() {
+  const select = $("#voiceHeadset"), current = select.value;
+  select.replaceChildren(...[...knownHeadsets.entries()].map(([id, name]) => el("option", { value: id }, `${name} (${id})`)));
+  if ([...select.options].some(o => o.value === current)) select.value = current;
+}
+async function sendScreenRequest(button) {
+  return run(button, async () => {
+    const serial = $("#voiceHeadset").value, workflow = $("#gpuWorkflow").value, prompt = $("#voiceRequest").value.trim();
+    if (!serial || !workflow || !prompt) throw new Error("Select a headset and an image-analysis workflow, then speak or type a request");
+    $("#voiceStatus").textContent = "Capturing the headset view and submitting your request…";
+    try {
+      const result = await api("/api/gpu/screen-request", { method: "POST", json: { serial, workflow, prompt } });
+      $("#voiceStatus").textContent = result.message; return result;
+    } catch (e) { $("#voiceStatus").textContent = e.message; throw e; }
+  });
+}
+$("#voiceSend").addEventListener("click", e => sendScreenRequest(e.currentTarget));
+const BrowserSpeech = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!BrowserSpeech || !window.isSecureContext) {
+  $("#voiceSpeak").disabled = true;
+  $("#voiceStatus").textContent = !window.isSecureContext ? "Voice needs a secure browser page. Use Open panel in headset over USB, or HTTPS. You can type a request here." : "Speech recognition is unavailable in this browser. You can type a request here.";
+}
+$("#voiceSpeak").addEventListener("click", () => {
+  if (!BrowserSpeech || voiceRecognition) return;
+  if (!$("#voiceHeadset").value || !$("#gpuWorkflow").value) return toast("Select a headset and image-analysis workflow first", "error");
+  const recognition = new BrowserSpeech(); voiceRecognition = recognition; voiceCancelled = false;
+  recognition.lang = navigator.language || "en-US"; recognition.interimResults = false; recognition.continuous = false;
+  $("#voiceSpeak").disabled = true; $("#voiceStop").disabled = false; $("#voiceStatus").textContent = "Listening…";
+  recognition.onresult = e => {
+    if (voiceCancelled) return;
+    const transcript = e.results[0][0].transcript;
+    $("#voiceRequest").value = transcript; $("#voiceStatus").textContent = `Heard: ${transcript}`;
+    sendScreenRequest($("#voiceSend"));
+  };
+  recognition.onerror = e => { $("#voiceStatus").textContent = `Speech recognition: ${e.error}. You can type your request.`; };
+  recognition.onend = () => { voiceRecognition = null; $("#voiceSpeak").disabled = false; $("#voiceStop").disabled = true; };
+  try { recognition.start(); } catch (e) { recognition.onend(); $("#voiceStatus").textContent = e.message; }
+});
+$("#voiceStop").addEventListener("click", () => {
+  voiceCancelled = true; voiceRecognition?.abort(); $("#voiceStatus").textContent = "Listening stopped; no request submitted.";
+});
+
+for (const button of $$("#voiceExamples [data-find]")) {
+  button.addEventListener("click", () => {
+    $("#voiceRequest").value = `Find ${button.dataset.find} in my current field of view. Mark the matching objects in the captured image and return the result to my headset for review.`;
+    sendScreenRequest(button);
+  });
+}
+
+function updateCaptureSelection() {
+  const selected = $$("#captures input[name=capturePick]:checked").map(input => ({ headset: input.dataset.headset, file: input.dataset.file }));
+  $("#captureSelectionValue").value = JSON.stringify(selected);
+  $("#captureExport").disabled = selected.length === 0;
+  $("#captureSelectionCount").textContent = `${selected.length} selected`;
+}
+$("#captureExportForm").addEventListener("submit", e => {
+  updateCaptureSelection();
+  if ($("#captureExport").disabled) { e.preventDefault(); toast("Select at least one capture to export", "error"); }
+});

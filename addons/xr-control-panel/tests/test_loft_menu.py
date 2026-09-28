@@ -1,5 +1,6 @@
 """Menu labels, removable shortcuts and Python file validation; no live runtime."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -15,6 +16,7 @@ class MenuTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.path = Path(self.temp.name)
+        (self.path/'config.json').write_text(json.dumps({'updates_dir':str(self.path/'updates')}))
         with patch.dict(os.environ, XR_PANEL_CONFIG=str(self.path/'config.json')):
             spec = importlib.util.spec_from_file_location('menu_server', ROOT/'server.py')
             self.server = importlib.util.module_from_spec(spec)

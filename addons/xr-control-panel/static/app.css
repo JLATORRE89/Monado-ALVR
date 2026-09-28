@@ -177,3 +177,7 @@ textarea { resize: vertical; }
   .device-status { gap: 8px; }
   .headset-card .actions .btn { flex: 1 1 145px; }
 }
+
+.update-item { padding: 16px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; min-width: 0; }
+.update-item .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.update-item .btn { white-space: normal; max-width: 100%; }

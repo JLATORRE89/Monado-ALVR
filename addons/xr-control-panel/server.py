@@ -12,6 +12,11 @@ Config: $XR_PANEL_CONFIG or ~/.config/xr-control-panel/config.json
 from __future__ import annotations
 
 import json
+import io
+import tarfile
+import gzip
+import html
+import zipfile
 import os
 import re
 import shutil
@@ -30,6 +35,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from usb_pairing import UsbPairing, atomic_json
+from software_updates import UpdateLibrary
 
 import gpu_worker  # noqa: E402  optional add-on: remote shared GPU (Local AI Stack)
 
@@ -339,6 +345,47 @@ def list_captures(headset: str | None) -> list[dict]:
     return sorted(items, key=lambda x: x["mtime"], reverse=True)[:200]
 
 
+def capture_export(headset, destination, selected=None):
+    if selected is None:
+        raise ValueError("Select at least one capture to export")
+    if not isinstance(selected, list) or not 1 <= len(selected) <= 200:
+        raise ValueError("Select between 1 and 200 captures")
+    items, seen = [], set()
+    for entry in selected:
+        if not isinstance(entry, dict):raise ValueError("Invalid capture selection")
+        h, name = entry.get("headset"), entry.get("file")
+        if not isinstance(h, str) or not isinstance(name, str) or not DIR_RE.fullmatch(h) or not FILE_RE.fullmatch(name):
+            raise ValueError("Invalid capture selection")
+        if (h, name) in seen:raise ValueError("Duplicate capture selection")
+        seen.add((h, name))
+        path = CAPTURE_DIR / h / name
+        if not path.is_file():raise ValueError("A selected capture is no longer available")
+        stat = path.stat()
+        items.append({"headset":h, "file":name, "size":stat.st_size, "mtime":stat.st_mtime,
+                      "type":"video" if path.suffix.lower() in VIDEO_EXTS else "image"})
+    if not items:
+        raise ValueError("No captures to export")
+    files = []
+    for item in items:
+        if not DIR_RE.fullmatch(item["headset"]) or not FILE_RE.fullmatch(item["file"]):
+            raise ValueError("Invalid capture name")
+        path = CAPTURE_DIR / item["headset"] / item["file"]
+        if not path.is_file() or path.is_symlink() or path.parent.is_symlink():
+            raise ValueError("Capture is not a regular local file")
+        files.append((item, path))
+    total = sum(path.stat().st_size for _, path in files)
+    if shutil.disk_usage(Path(tempfile.gettempdir())).free < total + 64 * 1024**2:
+        raise ValueError("Not enough temporary disk space for this export")
+    with gzip.GzipFile(fileobj=destination, mode="wb", compresslevel=9, mtime=0, filename="") as gz:
+        with tarfile.open(fileobj=gz, mode="w|", format=tarfile.PAX_FORMAT) as archive:
+            metadata = json.dumps({"captures":items}, indent=2).encode()
+            member = tarfile.TarInfo("captures.json"); member.size = len(metadata)
+            archive.addfile(member, io.BytesIO(metadata))
+            for item, path in files:
+                archive.add(path, arcname=item["headset"] + "/" + item["file"], recursive=False)
+    destination.seek(0)
+
+
 def delete_capture(headset: str, file: str, on_headset: bool) -> dict:
     """Delete a capture from this PC and, optionally, the same file on the headset."""
     if not DIR_RE.match(headset) or not FILE_RE.match(file):
@@ -599,6 +646,37 @@ def config_values() -> dict:
     return values
 
 
+def config_defaults() -> dict:
+    path = runtime_config_path()
+    result = subprocess.run(["git", "-C", str(path.parent.parent), "show", "HEAD:config/xr-build.json"],
+                            capture_output=True, text=True, timeout=10)
+    if result.returncode:
+        raise RuntimeError("Committed runtime defaults are unavailable; no settings were reset")
+    cfg = json.loads(result.stdout)
+    defaults = {}
+    for key in EDITABLE:
+        value = cfg
+        for bit in key.split("."):
+            value = value.get(bit) if isinstance(value, dict) else None
+        if value is not None:
+            defaults[key] = value
+    return defaults
+
+
+def config_restore(key):
+    defaults = config_defaults()
+    if key == "*":
+        if set(defaults) != set(EDITABLE):
+            raise ValueError("Some runtime defaults are missing; no settings were reset")
+        changes = defaults
+    else:
+        if not isinstance(key, str) or key not in defaults:
+            raise ValueError("Select an editable setting with an available default")
+        changes = {key: defaults[key]}
+    config_save(changes)
+    return {"message": "Runtime defaults restored. Changes may need a runtime restart."}
+
+
 def config_save(changes: dict) -> None:
     path = runtime_config_path()
     cfg = json.loads(path.read_text())
@@ -819,6 +897,84 @@ def auto_pair_usb_worker():
         _pairing_wake.clear()
 
 
+def gpu_screen_request(serial, workflow, prompt):
+    if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 2000:
+        raise ValueError("Speak or type a request of at most 2000 characters")
+    require_headset(serial)
+    available = gpu_worker.workflows()
+    info = available.get(workflow)
+    if not isinstance(info, dict) or int(info.get("reference_count") or 0) != 1:
+        raise ValueError("Select a GPU image-analysis workflow accepting one source image")
+    shot = headset_action(serial, "screenshot")
+    source = capture_dir_for(serial) / shot["file"]
+    rec = gpu_worker.submit(workflow, prompt.strip(), source, serial + "/" + shot["file"],
+                            review_serial=serial)
+    return {"message":"Captured the headset view and submitted your request; the result will return to this headset", "job":rec}
+
+
+def gpu_deliver_review(rec):
+    serial = rec["review_serial"]
+    require_headset(serial)
+    files = [name for name in rec.get("outputs", []) if FILE_RE.fullmatch(name) and Path(name).suffix.lower() in (".png", ".jpg", ".jpeg", ".webp")]
+    if not files:
+        raise RuntimeError("The workflow returned no reviewable image. Choose an image-analysis workflow that returns an annotated image.")
+    for name in files:
+        path = CAPTURE_DIR / gpu_worker.OUTPUT_FOLDER / name
+        if not path.is_file():raise RuntimeError("Review image is missing")
+        result = adb("-s", serial, "push", str(path), "/sdcard/Pictures/", timeout=120)
+        if result.returncode:raise RuntimeError("Could not copy the review image to the headset")
+    port = str(int(CFG["port"]))
+    result = adb("-s", serial, "reverse", "tcp:" + port, "tcp:" + port)
+    if result.returncode:raise RuntimeError("Could not open the panel connection on the headset")
+    result = adb("-s", serial, "shell", "am", "start", "-a", "android.intent.action.VIEW", "-d",
+                 "http://127.0.0.1:" + port + "/gpu-review/" + rec["request_id"])
+    if result.returncode or "Error:" in result.stdout or "Error:" in result.stderr:
+        raise RuntimeError("Review was copied, but its headset browser could not be opened")
+
+
+_gpu_refresh_lock = threading.Lock()
+
+def refresh_gpu_job(ident):
+    with _gpu_refresh_lock:
+        return gpu_worker.refresh(ident, CAPTURE_DIR)
+
+
+def gpu_screen_worker():
+    while True:
+        for rec in gpu_worker.list_jobs():
+            if not rec.get("review_serial") or rec.get("review_state") not in ("waiting", "delivering"):
+                continue
+            ident = rec["request_id"]
+            try:
+                rec = refresh_gpu_job(ident)
+                if rec["status"] in ("failed", "cancelled"):
+                    gpu_worker._update(ident, review_state="failed", review_error="GPU job did not complete")
+                elif rec["status"] == "complete":
+                    gpu_worker._update(ident, review_state="delivering")
+                    gpu_deliver_review(rec)
+                    gpu_worker._update(ident, review_state="delivered", review_error="")
+            except Exception as e:
+                gpu_worker._update(ident, review_state="failed", review_error=str(e)[:500])
+        time.sleep(5)
+
+
+def gpu_review_page(ident):
+    rec = gpu_worker._find(ident)
+    pictures = []
+    for name in rec.get("outputs", []):
+        if FILE_RE.fullmatch(name) and Path(name).suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
+            pictures.append('<img style="max-width:100%;height:auto" alt="GPU analysis result" src="/captures/gpu-worker/' + name + '">')
+    return ('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Headset review</title>'
+            '<body style="background:#162030;color:white;font:20px system-ui;padding:24px"><h1>GPU review</h1><p>'
+            + html.escape(rec.get("prompt", "")) + '</p>' + ''.join(pictures) + '<p><a style="color:lightblue" href="/#gpu">Back to GPU Worker</a></p></body>').encode()
+
+
+AAPT = CFG.get("aapt") or shutil.which("aapt2") or next(
+    (str(p) for sdk in (Path("/ai/android-sdk"), Path.home()/"Android/Sdk")
+     for p in sorted(sdk.glob("build-tools/*/aapt2"), reverse=True) if p.is_file()), None)
+UPDATES = UpdateLibrary(CFG.get("updates_dir", str(Path.home()/".local/share/xr-control-panel/updates")),
+                        adb, list_adb_devices, AAPT)
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "XRControlPanel/1"
 
@@ -883,6 +1039,46 @@ class Handler(BaseHTTPRequestHandler):
                 if "/" in name or f.suffix not in STATIC_TYPES or not f.is_file():
                     return self.json({"error": "not found"}, 404)
                 return self.send(200, f.read_bytes(), STATIC_TYPES[f.suffix], cache=True)
+            m = re.fullmatch(r"/gpu-review/([0-9a-f-]{36})", path)
+            if m:
+                return self.send(200, gpu_review_page(m.group(1)), "text/html; charset=utf-8")
+            if path == "/api/updates/downloader":
+                folder = HERE / "downloader"
+                if not folder.is_dir():
+                    folder = HERE.parent / "xr-downloader"
+                buffer = io.BytesIO()
+                with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
+                    for name in ("xr_downloader.py", "README.md", "xr-downloader.cmd", "xr-downloader.sh"):
+                        archive.writestr("XR-Downloader/" + name, (folder / name).read_bytes())
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Disposition", 'attachment; filename="XR-Downloader.zip"')
+                self.send_header("Content-Length", str(len(buffer.getvalue())))
+                self.end_headers(); self.wfile.write(buffer.getvalue())
+                return
+            if path == "/api/updates/export":
+                body = json.dumps(UPDATES.export_manifest(), indent=2).encode() + b"\n"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Disposition", 'attachment; filename="xr-downloads.json"')
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers(); self.wfile.write(body)
+                return
+            if path == "/api/updates":
+                return self.json(UPDATES.listing())
+            m = re.fullmatch(r"/api/updates/([a-f0-9]{64})/download", path)
+            if m:
+                file = UPDATES.file(m.group(1))
+                with file.open("rb") as stream:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Length", str(file.stat().st_size))
+                    self.send_header("Content-Disposition", f'attachment; filename="{m.group(1)}{file.suffix}"')
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    shutil.copyfileobj(stream, self.wfile, 1024*1024)
+                return
             if path == "/api/status":
                 return self.json(status())
             if path == "/api/transcodes":
@@ -907,9 +1103,17 @@ class Handler(BaseHTTPRequestHandler):
                 if not f.is_file():
                     return self.json({"error": "not found"}, 404)
                 ctype = CONTENT_TYPES.get(f.suffix.lower(), "application/octet-stream")
-                return self.send(200, f.read_bytes(), ctype, cache=True)
+                with f.open("rb") as stream:
+                    self.send_response(200)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Length", str(f.stat().st_size))
+                    if parse_qs(url.query).get("download") == ["1"]:
+                        self.send_header("Content-Disposition", f'attachment; filename="{f.name}"')
+                    self.end_headers()
+                    shutil.copyfileobj(stream, self.wfile, 1024*1024)
+                return
             if path == "/api/config":
-                return self.json({"values": config_values(), "types": {k: t.__name__ for k, t in EDITABLE.items()}})
+                return self.json({"values": config_values(), "defaults": config_defaults(), "types": {k: t.__name__ for k, t in EDITABLE.items()}})
             if path == "/api/clients":
                 return self.json(alvr_clients())
             if path == "/api/loft/menu":
@@ -939,6 +1143,47 @@ class Handler(BaseHTTPRequestHandler):
             return
         path = urlparse(self.path).path
         try:
+            if path == "/api/captures/export":
+                if int(self.headers.get("Content-Length", "0") or 0) > 128 * 1024:
+                    raise ValueError("Capture selection is too large")
+                form = parse_qs(self.body().decode())
+                selected = json.loads(form.get("selection", ["null"])[0])
+                with tempfile.TemporaryFile() as archive:
+                    capture_export(None, archive, selected)
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/gzip")
+                    self.send_header("Content-Disposition", 'attachment; filename="xr-selected-captures.tar.gz"')
+                    self.send_header("Content-Length", str(os.fstat(archive.fileno()).st_size))
+                    self.end_headers()
+                    shutil.copyfileobj(archive, self.wfile, 1024*1024)
+                return
+            if path.startswith("/api/updates/") and self.headers.get("Origin"):
+                if urlparse(self.headers["Origin"]).netloc != self.headers.get("Host"):
+                    return self.json({"error": "Update actions must originate from this panel"}, 403)
+            if path == "/api/updates/import":
+                self.connection.settimeout(120)
+                return self.json(UPDATES.import_bundle(int(self.headers.get("Content-Length", "0") or 0), self.rfile), 201)
+            if path == "/api/updates/source":
+                return self.json(UPDATES.save_source(json.loads(self.body())))
+            if path == "/api/updates/remove-source":
+                return self.json(UPDATES.remove_source(json.loads(self.body()).get("sha256")))
+            if path == "/api/updates/upload":
+                # Bound stalled uploads; stream to disk, never keep multi-GB files in memory.
+                self.connection.settimeout(120)
+                return self.json(UPDATES.upload(unquote(self.headers.get("X-Filename", "")),
+                    self.headers.get("X-Update-Kind", ""), int(self.headers.get("Content-Length", "0") or 0),
+                    self.rfile, self.headers.get("X-SHA256", "").strip()), 201)
+            if path in ("/api/updates/prepare", "/api/updates/install", "/api/updates/remove", "/api/updates/verify", "/api/updates/close-job"):
+                req = json.loads(self.body())
+                if path.endswith("/prepare"):
+                    return self.json(UPDATES.prepare(req.get("id"), req.get("serial")))
+                if path.endswith("/install"):
+                    return self.json(UPDATES.start(req.get("id"), req.get("serial"), req.get("confirmed")), 202)
+                if path.endswith("/remove"):
+                    return self.json(UPDATES.remove(req.get("id")))
+                if path.endswith("/close-job"):
+                    return self.json(UPDATES.close_job(req.get("job")))
+                return self.json(UPDATES.verify(req.get("job")))
             if path == "/api/panel/lan":
                 return self.json(set_lan_access(json.loads(self.body()).get("enabled", False)))
             if path == "/api/panel/auto-usb":
@@ -984,6 +1229,15 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/gpu/test":
                 acct = gpu_worker.account()
                 return self.json({"message": "Connected to the GPU worker", "account": acct})
+            if path == "/api/gpu/screen-request":
+                req = json.loads(self.body())
+                return self.json(gpu_screen_request(req.get("serial"), req.get("workflow"), req.get("prompt")), 202)
+            if path == "/api/gpu/retry-review":
+                rec = gpu_worker._find(json.loads(self.body()).get("request_id"))
+                if not rec.get("review_serial") or rec.get("review_state") != "failed":
+                    raise ValueError("No failed headset review to retry")
+                gpu_worker._update(rec["request_id"], review_state="waiting", review_error="")
+                return self.json({"message":"Headset review queued for retry"})
             if path == "/api/gpu/jobs":
                 req = json.loads(self.body())
                 source, label = None, ""
@@ -996,7 +1250,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json({"message": "Job submitted to the shared GPU", "job": rec}, 202)
             m = re.match(r"^/api/gpu/jobs/([0-9a-f-]{36})/refresh$", path)
             if m:
-                rec = gpu_worker.refresh(m.group(1), CAPTURE_DIR)
+                rec = refresh_gpu_job(m.group(1))
                 note = f"; saved {len(rec['outputs'])} output(s) to Captures" if rec.get("outputs") else ""
                 return self.json({"message": f"Job {rec['status']}{note}", "job": rec})
             if path == "/api/service/restart":
@@ -1006,6 +1260,8 @@ class Handler(BaseHTTPRequestHandler):
                 log = str(runtime_root() / "logs/control-panel-rebuild.log")
                 run_runtime("rebuild-runtime.sh", background=True, log=log)
                 return self.json({"message": "Rebuild started; log: " + log}, 202)
+            if path == "/api/config/restore":
+                return self.json(config_restore(json.loads(self.body()).get("key")))
             if path == "/api/config":
                 config_save(json.loads(self.body()))
                 return self.json({"message": "Saved. Runtime/network changes may need a runtime restart."})
@@ -1070,6 +1326,7 @@ def main():
     print(f"XR Control Panel on http://{url_host(bind)}:{CFG['port']}/ "
           f"(runtime: {runtime_root() or 'not configured'}, adb: {ADB or 'missing'})", flush=True)
     threading.Thread(target=auto_pair_usb_worker, daemon=True, name="usb-pairing").start()
+    threading.Thread(target=gpu_screen_worker, daemon=True, name="gpu-screen-review").start()
     server.serve_forever()
 
 

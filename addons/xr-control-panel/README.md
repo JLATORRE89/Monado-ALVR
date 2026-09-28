@@ -158,3 +158,96 @@ Install third-party dependencies in that environment first. Desktop Python windo
 appear on the PC; headset presentation of ordinary desktop apps is a separate backlog
 task. OpenXR applications can render directly to the headset. The Loft returns when
 the launched process finishes.
+
+### Offline software updates
+
+The **Software updates** tab stores standalone APKs and unmodified OTA firmware ZIPs
+on this PC (default `~/.local/share/xr-control-panel/updates`; config `updates_dir`).
+Upload while files are available, then install without internet. Download copy exports
+an unchanged file for transfer to another offline panel. File SHA-256 IDs deduplicate
+packages; optional publisher checksums are checked during upload and stored file hashes
+are rechecked before installation. Uploads stream to temporary files with a 16 GiB limit,
+free-space check and atomic publication. No remote update feed is configured or scraped.
+
+APK metadata needs Android SDK `aapt2` (auto-discovered, or config `aapt`). Android's
+`adb install -r` preserves app data and enforces its normal signature/version rules;
+this panel does not force downgrades, uninstall first, bypass signatures or support
+split APK bundles. Jobs verify the installed versionCode after installation.
+
+Firmware must contain standard Android OTA metadata and payload. **Check firmware
+compatibility** reads the selected physical USB Quest's model, current build/fingerprint,
+build timestamp and battery before allowing a newer compatible package. Wipe/downgrade
+packages are rejected. The preparation expires after 30 minutes and is not carried
+across a panel restart. Then manually enter the headset's Sideload update mode and
+explicitly install to the same ADB serial. The panel never automatically reboots,
+flashes partitions, unlocks a bootloader or wipes data. If recovery exposes a different
+serial, installation is blocked: use Meta's official tool instead of guessing identity.
+Recovery must verify the vendor signature; a checksum/metadata check alone does not
+prove Meta provenance. Obtain packages from an authorized, trusted source.
+
+Firmware jobs remain **awaiting verification** after ADB transfer. Boot normally,
+reconnect ADB and choose Verify installed version to check the target build. Interrupted
+jobs remain unknown after restart. Close without verification explicitly records that
+outcome and permits a new attempt; it never stops an active flash. Check the headset
+before retrying. No real firmware was flashed during feature development; recovery
+installation acceptance requires a compatible official package and a controlled test.
+
+References: [Android ADB install](https://developer.android.com/tools/adb),
+[Android OTA preconditions](https://source.android.com/docs/core/ota/tools),
+[Meta software update tool](https://www.meta.com/help/quest/software_update/).
+
+### XR Downloader bundles
+
+Software updates → Supported downloads defines the applications/firmware included in
+an exported JSON list. Each definition contains a name, kind, direct HTTP(S) URL and
+trusted SHA-256; optional version labels are supported. Set download source on a
+stored file fills its known label/version/hash. Definitions describe approved releases;
+they do not automatically scrape app stores or invent URLs for installed packages.
+
+Get XR Downloader downloads a standalone Linux/Windows ZIP. Its source is the sibling
+`addons/xr-downloader`; it uses Python 3.11+ and no panel or third-party libraries.
+Run it on any online computer with the exported JSON to generate a complete tar.gz
+using gzip level 9. Import offline bundle accepts the archive on an offline panel,
+validates all paths, file sizes, SHA-256 values and actual APK/OTA metadata, then
+publishes all files and their download definitions. Unexpected entries, links,
+traversal, missing files and tampered payloads reject the whole import. See the
+Downloader README for the format and Linux/Windows commands. Native Windows runtime
+acceptance remains pending; Linux download → disconnected import has been tested.
+
+### Captures and settings defaults
+
+Captures → Export file downloads one original screenshot/recording. Export selected
+captures downloads a maximum-compression tar.gz of only the checked files (up to
+200 files; nothing is selected by default), with metadata and originals grouped by headset. Exports never delete
+captures. File transfer is streamed rather than loading recordings into memory.
+
+Settings shows the committed default for the selected editable runtime setting.
+Restore selected to default restores one key; Restore All to Default restores all
+editable runtime keys after confirmation. Defaults come from the runtime checkout's
+committed `HEAD:config/xr-build.json`, not the current edited file. Unrelated config
+keys, pairings, captures, update packages and Loft shortcuts are preserved. Existing
+workstation overrides/environment settings can still take precedence in the runtime.
+No runtime restart or rebuild is triggered automatically.
+
+### Voice screen analysis and return-to-headset review
+
+GPU Worker → Ask by voice about my current screen supports tap-to-speak, typed
+requests and basic dog/ball/chair/glass-cup examples. Choose a connected headset and
+an actual image-analysis workflow accepting one reference image and returning an
+annotated image. The request captures that headset's current screenshot, submits it
+with the spoken instruction, polls the durable job, copies resulting images back to
+that same headset's Pictures directory, and opens a review page there through ADB.
+Unavailable workflows are rejected before capture. Failed delivery can be retried.
+
+This is a browser voice interface, not an always-listening native Loft voice agent.
+Browser speech recognition must be supported and requires a secure context (USB
+Open panel in headset uses localhost; unencrypted LAN pages may not allow speech).
+Depending on the browser, recognition may use an internet service. A typed fallback
+remains available. Capture includes only what Quest screenshots expose; this does
+not add a passthrough camera permission or physical-world camera feed.
+
+Current deployment has no GPU-worker connection key configured. The routing,
+selected-headset delivery and simulated speech tests pass, but real model detection,
+Quest microphone support and in-headset review need provider/device acceptance.
+Do not substitute a generative image workflow and claim verified object detection.
+See [browser speech support](https://developer.mozilla.org/en-US/docs/Web/API/SpeechRecognition).
