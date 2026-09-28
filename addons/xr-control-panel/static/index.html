@@ -43,15 +43,21 @@
         <ol class="steps">
           <li>Get XR Downloader.
             <div class="actions"><a class="btn primary" href="/api/updates/downloader" download="XR-Downloader.zip">Get XR Downloader (Linux / Windows)</a></div></li>
-          <li>Add each app or firmware to fetch: a name, its direct URL and the SHA-256 from a trusted source.</li>
+          <li>Choose the apps you want. XR Downloader finds their available releases on the online PC.</li>
           <li>Export the list and run XR Downloader with it on the online PC.</li>
           <li>Import the bundle it makes above.</li>
         </ol>
-        <label class="field"><span>Application or firmware name</span><input id="sourceName"></label>
-        <label class="field"><span>Type</span><select id="sourceKind"><option value="apk">Quest app</option><option value="firmware">Quest firmware</option></select></label>
-        <label class="field"><span>Version (optional label)</span><input id="sourceVersion"></label>
-        <label class="field"><span>Direct download URL</span><input id="sourceUrl" type="url" placeholder="https://…/release.apk"></label>
-        <label class="field"><span>SHA-256 from your trusted source</span><input id="sourceHash" maxlength="64"></label>
+        <label class="field"><span>Headset</span><select id="sourceHeadset"><option value="">Connect a headset to load installed apps</option></select></label>
+        <div class="actions"><button class="btn" id="sourceLoadApps">Load installed apps</button></div>
+        <label class="field"><span>Choose an app or firmware</span><select id="sourcePicker"><option value="">Choose an app…</option></select></label>
+        <p id="sourcePickerInfo" class="muted" role="status">Pick an app here. No internet connection or download details are needed on this PC.</p>
+        <details id="sourceAdvanced"><summary>Advanced: custom download source</summary>
+          <label class="field"><span>Name in the download list</span><input id="sourceName"></label>
+          <label class="field"><span>Type</span><select id="sourceKind"><option value="apk">Quest app</option><option value="firmware">Quest firmware</option></select></label>
+          <label class="field"><span>Version (optional label)</span><input id="sourceVersion"></label>
+          <label class="field"><span>Direct download URL</span><input id="sourceUrl" type="url" placeholder="https://…/release.apk"></label>
+          <label class="field"><span>SHA-256 from your trusted source</span><input id="sourceHash" maxlength="64"></label>
+        </details>
         <div class="actions"><button class="btn" id="sourceSave">Add to download list</button><a class="btn" href="/api/updates/export" download="xr-downloads.json">Export download list (JSON)</a></div>
         <div id="updateSources"></div>
       </details>
@@ -257,6 +263,6 @@
 </main>
 
 <div id="toasts" class="toasts" aria-live="polite"></div>
-<script src="/static/app.js?v=20260927-mic1"></script>
+<script src="/static/app.js?v=20260928-app-picker"></script>
 </body>
 </html>

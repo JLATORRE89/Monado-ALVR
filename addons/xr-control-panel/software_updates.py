@@ -10,7 +10,7 @@ import tempfile
 import tarfile
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "xr-downloader"))
-from xr_downloader import validate_manifest, member_name, SCHEMA, MAX_TOTAL
+from xr_downloader import validate_manifest, member_name, SCHEMA, MAX_TOTAL, REQUEST_SCHEMA, APP_CATALOG, validate_request
 import threading
 import time
 import uuid
@@ -86,7 +86,7 @@ class UpdateLibrary:
         with self.lock:
             rows=[json.loads(p.read_text()) for p in self.root.glob('*/info.json') if ID.fullmatch(p.parent.name)]
             return {'updates':sorted(rows,key=lambda x:-x['stored_at']), 'jobs':sorted(self.jobs.values(),key=lambda x:-x['started']),
-                    'devices':self.devices(), 'apk_inspection_available':bool(self.aapt), 'sources':list(self.sources.values())}
+                    'devices':self.devices(), 'apk_inspection_available':bool(self.aapt), 'sources':list(self.sources.values()), 'catalog':[{'name':v['name'],'kind':'apk','package':k,'resolve':'catalog'} for k,v in APP_CATALOG.items()]}
 
     def upload(self, name, kind, length, stream, expected=''):
         if kind not in ('apk','firmware'):raise ValueError('Choose APK or firmware')
@@ -119,9 +119,12 @@ class UpdateLibrary:
             if temp.exists():shutil.rmtree(temp)
 
     def save_source(self, app):
-        validate_manifest({'schema':SCHEMA,'applications':[app]})
+        automatic = app.get('resolve') == 'catalog'
+        (validate_request if automatic else validate_manifest)({'schema':REQUEST_SCHEMA if automatic else SCHEMA,'applications':[app]})
+        key = 'app:' + app['package'] if automatic else app['sha256']
+        app = dict(app, source_id=key)
         with self.lock:
-            self.sources[app['sha256']]=app
+            self.sources[key]=app
             atomic_json(self.sources_path,self.sources)
         return {'message':'Supported download saved'}
 
@@ -133,8 +136,10 @@ class UpdateLibrary:
 
     def export_manifest(self):
         with self.lock:
-            manifest={'schema':SCHEMA,'applications':list(self.sources.values())}
-            return validate_manifest(manifest)
+            apps=list(self.sources.values())
+            automatic=any(a.get('resolve')=='catalog' for a in apps)
+            manifest={'schema':REQUEST_SCHEMA if automatic else SCHEMA,'applications':apps}
+            return (validate_request if automatic else validate_manifest)(manifest)
 
     def import_bundle(self, length, stream):
         if not 0 < length <= MAX_TOTAL:raise ValueError('Bundle must be between 1 byte and 64 GiB')

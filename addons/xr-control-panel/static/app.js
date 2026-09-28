@@ -550,10 +550,11 @@ async function loadUpdates() {
   updatesBusy = true;
   try {
     const data = await api("/api/updates");
+    renderSourcePicker(data);
     $("#updateSources").replaceChildren(...data.sources.map(a => el("div", { class: "update-item" },
-      el("strong", {}, `${a.name} ${a.version || ""}`), el("p", { class: "muted" }, a.url),
+      el("strong", {}, `${a.name} ${a.version || ""}`), el("p", { class: "muted" }, a.resolve === "catalog" ? "XR Downloader finds the release online" : a.url),
       el("button", { class: "btn danger", "data-confirm": `Remove ${a.name} from the exported download list?`, onclick: e => run(e.currentTarget, async () => {
-        const r = await api("/api/updates/remove-source", { method: "POST", json: { sha256: a.sha256 } }); await loadUpdates(); return r;
+        const r = await api("/api/updates/remove-source", { method: "POST", json: { sha256: a.source_id || a.sha256 } }); await loadUpdates(); return r;
       }) }, "Remove from download list"))));
     const select = $("#updateHeadset"), selected = select.value;
     select.replaceChildren(...data.devices.map(d => el("option", { value: d.serial }, `${d.model || "Headset"} (${d.serial}) · ${d.state}`)));
@@ -578,7 +579,9 @@ async function loadUpdates() {
           el("button", { class: "btn", onclick: () => {
             $("#sourceName").value = u.label; $("#sourceKind").value = u.kind; $("#sourceVersion").value = u.version;
             $("#sourceHash").value = u.sha256; $("#sourceUrl").value = "";
-            $("#sourceName").closest("details").open = true; $("#sourceUrl").focus();
+            sourcePackage = u.package || "";
+            $("#sourceAdvanced").open = true; $("#sourceAdvanced").parentElement.open = true;
+            $("#sourcePicker").value = `stored:${u.id}`; $("#sourceUrl").focus();
           } }, "Set download source"),
           el("a", { class: "btn", href: `/api/updates/${u.id}/download`, download: u.filename }, "Download copy"),
           el("button", { class: "btn danger", "data-confirm": `Remove stored ${u.filename}? Installed software will stay on headsets.`, onclick: e => invoke(e.currentTarget, "remove") }, "Remove stored file")));
@@ -681,10 +684,15 @@ setInterval(() => { if (!$("#tab-updates").hidden) loadPeers(); }, 3000);
 
 
 $("#sourceSave").addEventListener("click", e => run(e.currentTarget, async () => {
-  const result = await api("/api/updates/source", { method: "POST", json: {
-    name: $("#sourceName").value.trim(), kind: $("#sourceKind").value, version: $("#sourceVersion").value.trim(),
-    url: $("#sourceUrl").value.trim(), sha256: $("#sourceHash").value.trim().toLowerCase()
-  } }); await loadUpdates(); return result;
+  const name = $("#sourceName").value.trim();
+  const automatic = sourcePackage && !$("#sourceUrl").value.trim();
+  const definition = automatic ? { name, kind: "apk", package: sourcePackage, resolve: "catalog" } : {
+    name, kind: $("#sourceKind").value, version: $("#sourceVersion").value.trim(),
+    url: $("#sourceUrl").value.trim(), sha256: $("#sourceHash").value.trim().toLowerCase(),
+    ...(sourcePackage && $("#sourceKind").value === "apk" ? { package: sourcePackage } : {})
+  };
+  const result = await api("/api/updates/source", { method: "POST", json: definition });
+  await loadUpdates(); return result;
 }));
 $("#bundleImport").addEventListener("click", e => run(e.currentTarget, async () => {
   const file = $("#bundleFile").files[0];
@@ -938,3 +946,65 @@ $("#micTest").addEventListener("click", async () => {
 $("#micTestStop").addEventListener("click", () => stopMicTest("Microphone test stopped. Nothing was recorded or uploaded."));
 window.addEventListener("pagehide", () => { stopMicTest(); voiceCancelled = true; voiceRecognition?.abort(); if (voiceRecorder?.state === "recording") voiceRecorder.stop(); });
 document.addEventListener("visibilitychange", () => { if (document.hidden) stopMicTest("Microphone test stopped because the page is hidden."); });
+
+// Friendly-name picker for XR Downloader definitions, reusing installed-app labels.
+let sourcePackage = "", sourceInstalledApps = [], sourceChoices = new Map(), sourceCatalog = { sources: [], updates: [] };
+function sourceChoiceLabel(app) {
+  const name = app.name || app.label || app.package;
+  return `${name}${app.package && app.package !== name ? ` (${app.package})` : ""}${app.version ? ` · ${app.version}` : ""}`;
+}
+function renderSourcePicker(data = sourceCatalog) {
+  sourceCatalog = data;
+  const headset = $("#sourceHeadset"), oldHeadset = headset.value;
+  headset.replaceChildren(...[...knownHeadsets.entries()].map(([id, name]) => el("option", { value: id }, `${name} (${id})`)));
+  if ([...headset.options].some(o => o.value === oldHeadset)) headset.value = oldHeadset;
+  if (!headset.options.length) headset.append(el("option", { value: "" }, "Connect a headset to load installed apps"));
+  $("#sourceLoadApps").disabled = !headset.value;
+  const picker = $("#sourcePicker"), current = picker.value;
+  sourceChoices = new Map();
+  const groups = [];
+  function group(label, entries) {
+    if (!entries.length) return;
+    const node = el("optgroup", { label });
+    for (const [id, app] of entries) { sourceChoices.set(id, app); node.append(el("option", { value: id }, sourceChoiceLabel(app))); }
+    groups.push(node);
+  }
+  group("Publisher catalog", (data.catalog || []).map(app => [`catalog:${app.package}`, app]));
+  group("Saved downloads", data.sources.map(app => [`saved:${app.source_id || app.sha256}`, app]));
+  group("Stored update files", data.updates.map(app => [`stored:${app.id}`, { ...app, name: app.label }]));
+  group("Installed on the headset", sourceInstalledApps.map(app => {
+    const saved = data.sources.find(s => s.kind === "apk" && s.package === app.package);
+    return [`installed:${app.package}`, { ...saved, kind: "apk", package: app.package, name: app.label }];
+  }));
+  picker.replaceChildren(el("option", { value: "" }, "Choose an app…"), ...groups,
+    el("option", { value: "custom" }, "Other app or firmware…"));
+  if (sourceChoices.has(current) || current === "custom") picker.value = current;
+  // Background refresh must not replace fields the user is currently editing.
+}
+function chooseDownloadSource() {
+  const value = $("#sourcePicker").value, app = sourceChoices.get(value);
+  sourcePackage = app?.package || "";
+  for (const [id, field] of [["#sourceName", "name"], ["#sourceVersion", "version"], ["#sourceUrl", "url"], ["#sourceHash", "sha256"]]) $(id).value = app?.[field] || "";
+  $("#sourceKind").value = app?.kind || "apk";
+  const automatic = Boolean(app?.package && !app?.url);
+  const ready = automatic || Boolean(app?.url && app?.sha256);
+  $("#sourceAdvanced").open = Boolean(value) && !ready;
+  const catalogued = (sourceCatalog.catalog || []).some(entry => entry.package === app?.package);
+  $("#sourcePickerInfo").textContent = automatic ? (catalogued
+    ? "XR Downloader will look up this publisher’s release and checksum on the online PC. A published standalone installer is required; the Monado fork currently has no published release."
+    : "This app is not yet in the download catalog. You can save its identity, but XR Downloader needs support for its publisher before it can download it. Store-only apps may require the headset store.") : ready ? "Download details are ready. Add this app to your download list."
+    : app ? `${app.name} selected. Add its trusted download URL${app.sha256 ? "" : " and checksum"} once in Download details.`
+    : value === "custom" ? "Enter the custom app or firmware download details below." : "Choose an app first.";
+}
+$("#sourcePicker").addEventListener("change", chooseDownloadSource);
+$("#sourceHeadset").addEventListener("change", () => { sourceInstalledApps = []; renderSourcePicker(); });
+$("#sourceLoadApps").addEventListener("click", e => run(e.currentTarget, async () => {
+  const serial = $("#sourceHeadset").value;
+  if (!serial) throw new Error("Connect and select a headset first");
+  const data = await api(`/api/headsets/${encodeURIComponent(serial)}/packages`);
+  if ($("#sourceHeadset").value !== serial) return;
+  sourceInstalledApps = data.apps || data.packages.map(p => ({ package: p, label: p }));
+  renderSourcePicker();
+  $("#sourcePickerInfo").textContent = data.warning || `${sourceInstalledApps.length} installed apps loaded. Choose one above.`;
+  return { message: data.warning || "Installed apps ready to choose" };
+}));

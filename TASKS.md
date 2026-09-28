@@ -1,3 +1,23 @@
+> **Codex follow-up (2026-09-28 12:38):** Claude's pending alvr.cpp refresh-rate fix
+> left untouched. Actual connected/awake Quest sample, 16:19:18–16:19:38 UTC:
+> 3 late warnings (13.89 ms), 20 encoder reports at 72 fps, active Quest decoder
+> input/submission/output. This is a real streaming sample, not a no-client window;
+> it does not prove display FPS or controlled A/B improvement. Preserve 8-bit HEVC.
+> Loft standing world eye height calibrated once to 1.6 m (measured ~1.618 m after,
+> ~2.966 m before), user confirmed. Added centre-headset-dot chair targeting within
+> 2.5 m horizontal distance, either trigger seats without controller aiming; centre
+> dot turns blue. Visible menu tile under gaze retains priority. Existing controller
+> seat marker now overrides an empty menu-plane dot. Three Loft tests pass; live
+> 12:33:11 log contains SIT gaze for both L/R hands. Visual/range acceptance pending.
+> Panel now offers friendly app dropdown and exports URL-free app identities.
+> Standalone Downloader resolves known publisher releases online, verifies supplied
+> SHA-256 and creates the existing gzip-9 offline bundle. Initial mappings: ALVR and
+> Monado fork; fork currently has no published GitHub release, unmapped/store apps
+> fail clearly. Firmware/custom pinned definitions remain supported. 13 existing
+> update/bundle tests + 3 automatic-resolution tests + isolated browser picker test
+> passed. Installed panel/helper/standalone ZIP synchronized and live endpoints checked.
+> Native Windows acceptance remains pending. Do not run test_panel.py on the live host.
+
 > **CORRECTION (2026-09-28 11:45):** HEVC Main10 crashed the runtime (SIGBUS in iHD
 > vaEndPicture via avcodec_send_frame) when the headset connected; the Loft died with it and the
 > headset showed nothing. 10-bit REVERTED (session back to 8-bit HEVC; crashed config kept as

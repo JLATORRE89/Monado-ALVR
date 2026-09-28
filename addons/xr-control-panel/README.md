@@ -198,11 +198,16 @@ References: [Android ADB install](https://developer.android.com/tools/adb),
 
 ### XR Downloader bundles
 
-Software updates → Supported downloads defines the applications/firmware included in
-an exported JSON list. Each definition contains a name, kind, direct HTTP(S) URL and
-trusted SHA-256; optional version labels are supported. Set download source on a
-stored file fills its known label/version/hash. Definitions describe approved releases;
-they do not automatically scrape app stores or invent URLs for installed packages.
+Software updates → Create a download list offers a friendly app picker, including
+installed headset apps (`Name (package)`). Selecting an app exports its identity in
+`xr-download-request-v1` JSON without requiring internet, a URL or a checksum on the
+offline system. XR Downloader finds supported publisher releases on the online PC,
+obtains the release checksum and verifies the download. Its initial publisher catalog
+covers ALVR and ALVR for Monado; the Monado fork currently has no published release.
+Unmapped/store-only apps and missing releases produce a clear error rather than a
+partial bundle or a similarly named substitute. Additional publishers need catalog
+support. Advanced custom/firmware entries retain pinned URL/SHA-256 support; existing
+`xr-offline-updates-v1` lists remain compatible.
 
 Get XR Downloader downloads a standalone Linux/Windows ZIP. Its source is the sibling
 `addons/xr-downloader`; it uses Python 3.11+ and no panel or third-party libraries.

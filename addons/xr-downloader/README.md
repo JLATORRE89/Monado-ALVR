@@ -4,8 +4,9 @@ Standalone offline-update packager for Linux and Windows. XR Control Panel does 
 need to be installed or running. Requires Python 3.11 or newer; no third-party Python
 packages, administrator rights or ADB are required.
 
-1. In XR Control Panel → Software updates → Supported downloads, configure direct
-   download URLs and trusted SHA-256 checksums, then export `xr-downloads.json`.
+1. In XR Control Panel → Software updates → Create a download list, choose apps by
+   friendly name, add them to the list, then export `xr-downloads.json`. The offline
+   panel only needs app identities; it does not need internet, download URLs or checksums.
 2. Take the JSON file and this folder to a Linux or Windows computer with internet.
 3. Run one command:
 
@@ -29,8 +30,17 @@ plus their final archive (up to approximately twice the download size). Limits: 
 files, 16 GiB per file, 64 GiB total. The panel must have Android SDK aapt2 to inspect
 APKs on import; that tool is not needed by XR Downloader.
 
-This downloads configured URLs, not app-store accounts or dynamically discovered latest
-releases. Update each definition's URL/version/checksum when approving a new release.
+For app selections, XR Downloader finds the latest published release online using an
+explicit publisher catalog, obtains its SHA-256 from release metadata, and verifies
+the downloaded file before packaging. The current catalog maps ALVR and ALVR for
+Monado to their respective publishers. The Monado fork currently has no published
+GitHub release, so it reports that no verified download is available. It never
+substitutes the incompatible upstream app. Other installed apps can be selected,
+but need a supported publisher mapping before automatic downloads can succeed.
+Store-only apps are not downloadable through this tool. A missing or unverifiable
+release fails the complete job with an explanation; no partial bundle is published.
+
+Advanced custom downloads and firmware can still use pinned URL/checksum entries.
 Use stable direct file URLs, not sign-in pages. Credentials embedded in URLs and HTTPS
 redirects to HTTP are rejected. Keep private signed URLs private if used in the JSON.
 Checksums verify file identity, not publisher trust; obtain them from a trusted source.
@@ -38,6 +48,20 @@ Firmware still needs a compatible, vendor-signed package and the headset's recov
 workflow. XR Downloader never installs anything or changes a headset.
 
 ## JSON format
+
+Offline selections use this request format. XR Downloader resolves it online into
+the pinned manifest included in the bundle:
+
+```json
+{
+  "schema": "xr-download-request-v1",
+  "applications": [
+    {"name": "ALVR", "kind": "apk", "package": "alvr.client.stable", "resolve": "catalog"}
+  ]
+}
+```
+
+Pinned downloads remain supported, including older exported lists:
 
 ```json
 {
