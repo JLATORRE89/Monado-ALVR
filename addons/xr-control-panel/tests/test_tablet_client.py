@@ -250,6 +250,24 @@ class RelayTests(unittest.TestCase):
             time.sleep(0.05)
         self.assertEqual(clients.voices, set())
 
+    def test_home_screen_icon_is_public_but_nothing_else(self):
+        def get(path):
+            h = object.__new__(self.s.Handler)
+            h.client_address = ("192.0.2.40", 5000)  # an unpaired Wi-Fi browser
+            h.command, h.path, h.headers = "GET", path, {}
+            sent = []
+            h.send = lambda code, body, ctype="", cache=False: sent.append((code, ctype))
+            h.do_GET()
+            return sent[0]
+        self.assertEqual(get("/static/loft-192.png"), (200, "image/png"))
+        self.assertEqual(get("/static/loft.webmanifest"), (200, "application/manifest+json"))
+        manifest = json.loads((ROOT / "static/loft.webmanifest").read_text())
+        self.assertEqual(manifest["start_url"], "/tablet")
+        for icon in manifest["icons"]:
+            self.assertEqual(get(icon["src"])[0], 200)
+        self.assertEqual(get("/static/app.js")[0], 401)
+        self.assertEqual(get("/tablet")[0], 401)
+
     def test_plain_request_and_missing_renderer(self):
         import urllib.request
         import urllib.error

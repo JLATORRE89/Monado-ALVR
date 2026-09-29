@@ -779,7 +779,10 @@ def approved_tool(*args: str) -> subprocess.CompletedProcess:
 
 # ---------------------------------------------------------------- HTTP
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
-                ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml"}
+                ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
+                ".webmanifest": "application/manifest+json"}
+# The Loft's home-screen icon and manifest: browsers fetch these without the pairing cookie.
+PUBLIC_STATIC = {"loft.webmanifest", "loft-192.png", "loft-512.png", "loft-maskable-512.png"}
 
 
 # ---------------------------------------------------------------- Wi-Fi pairing
@@ -1354,6 +1357,9 @@ class Handler(BaseHTTPRequestHandler):
         share_path = urlparse(self.path).path
         if share_path.startswith("/api/share/"):
             return self.serve_share(share_path)
+        if share_path.startswith("/static/") and share_path[len("/static/"):] in PUBLIC_STATIC:
+            name = share_path[len("/static/"):]
+            return self.send(200, (STATIC / name).read_bytes(), STATIC_TYPES[Path(name).suffix], cache=True)
         if not self.authorized():
             return
         url = urlparse(self.path)

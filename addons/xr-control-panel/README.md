@@ -355,6 +355,12 @@ back, LB/RB switch Pictures and Videos. Browsers expose controllers and the micr
 only to secure pages, so use the USB-opened page (`http://127.0.0.1`) or the HTTPS
 address on Wi-Fi, not plain HTTP.
 
+Home-screen icon: `/tablet` has a web-app manifest and a Loft icon (`static/loft-*.png`,
+served without pairing, like nothing else). In Chrome on the tablet: ⋮ → Add to home screen
+(or Install app); the icon opens the Loft full screen. Add it from the address it should use:
+the Wi-Fi HTTPS address (`https://<this PC>:8483/tablet`) works without the cable; one added
+from the USB page (`http://127.0.0.1:8083`) only works while the tablet is on USB.
+
 Menu: Pictures and Videos are the panel's captures (screenshots, recordings, uploads),
 newest first, shown full screen on the tablet (videos play in its browser). The headset's
 test patterns and Quest apps are not offered on a tablet.
