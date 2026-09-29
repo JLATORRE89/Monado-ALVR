@@ -1,17 +1,18 @@
 diff --git a/src/EncodePipelineVAAPI.cpp b/src/EncodePipelineVAAPI.cpp
-index a2485c4..ff7aab5 100644
+index a2485c4..6783178 100644
 --- a/src/EncodePipelineVAAPI.cpp
 +++ b/src/EncodePipelineVAAPI.cpp
-@@ -7,6 +7,8 @@
+@@ -7,6 +7,9 @@
  #include <chrono>
  #include <cmath>
  #include <iostream>
 +#include <filesystem>
 +#include <fstream>
++#include <unistd.h>
  
  extern "C" {
  #include "alvr_binding.h"
-@@ -433,6 +435,35 @@ void alvr::EncodePipelineVAAPI::PushFrame(uint64_t targetTimestampNs, bool idr)
+@@ -433,6 +436,38 @@ void alvr::EncodePipelineVAAPI::PushFrame(uint64_t targetTimestampNs, bool idr)
      throw alvr::AvException("av_buffersink_get_frame failed", err);
    }
  
@@ -34,6 +35,9 @@ index a2485c4..ff7aab5 100644
 +        if (raw) {
 +          std::ofstream meta(dir + "/intel-xr-boundary.txt", std::ios::trunc);
 +          meta << targetTimestampNs << " " << cpu->width << " " << cpu->height << "\n";
++          meta.close();
++          std::ofstream pending(dir + "/intel-xr-boundary.pending", std::ios::trunc);
++          pending << getpid() << " " << targetTimestampNs << "\n";
 +          std::cerr << "[INTEL-XR-BOUNDARY] preencode pts=" << targetTimestampNs
 +                    << " packed=" << cpu->width << "x" << cpu->height << " format=nv12" << std::endl;
 +        }
@@ -48,19 +52,21 @@ index a2485c4..ff7aab5 100644
    encoder_frame->pts = targetTimestampNs;
  
 diff --git a/src/Encoder.cpp b/src/Encoder.cpp
-index 40b33bc..e60f614 100644
+index 40b33bc..4c2b3f2 100644
 --- a/src/Encoder.cpp
 +++ b/src/Encoder.cpp
-@@ -438,6 +438,24 @@ void Encoder::present(u32 idx, u64 timelineVal, ViewsInfo const& views)
+@@ -438,6 +438,26 @@ void Encoder::present(u32 idx, u64 timelineVal, ViewsInfo const& views)
          return;
      }
  
 +    // Pair the optional raw readback with the exact compressed frame and eye poses.
 +    if (framePacket.isIDR) {
 +        std::string dir = std::getenv("XDG_RUNTIME_DIR") ? std::getenv("XDG_RUNTIME_DIR") : "/tmp";
-+        std::ifstream meta(dir + "/intel-xr-boundary.txt");
-+        u64 pts = 0; unsigned width = 0, height = 0;
-+        if (meta >> pts >> width >> height && pts == framePacket.pts) {
++        std::ifstream pending(dir + "/intel-xr-boundary.pending");
++        u64 pts = 0; int owner = 0;
++        if (pending >> owner >> pts && owner == getpid() && pts == framePacket.pts) {
++            std::error_code ec;
++            std::filesystem::remove(dir + "/intel-xr-boundary.pending", ec);
 +            std::ofstream packet(dir + "/intel-xr-boundary.encoded", std::ios::binary | std::ios::trunc);
 +            packet.write(reinterpret_cast<char const *>(framePacket.data), framePacket.size);
 +            std::ofstream pose(dir + "/intel-xr-boundary-views.txt", std::ios::trunc);

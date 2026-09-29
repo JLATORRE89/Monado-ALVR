@@ -72,3 +72,11 @@ boundary.encoded, boundary.txt and boundary-views.txt immediately into a labeled
 folder before the next capture. boundary.txt contains encoder PTS, width, height. Decode
 NV12 with ffmpeg rawvideo/nv12 and those dimensions; decode .encoded with format auto-detection.
 Captures incur one GPU readback and disk write; keep them out of latency measurements.
+
+## Subsequent live checks
+
+Quest telemetry returned (93%, asleep, client running) and forwarding 9943/9944 was
+restored. A three-sample check recorded one timeout with correctly retained/stale values
+followed by two fresh healthy samples. This verifies repopulation and stale-value behavior,
+not long-term USB stability. Paired captures now use a one-shot process-owned pending
+marker so a later runtime's reused frame counter cannot overwrite the saved encoded pair.
