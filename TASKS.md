@@ -2,7 +2,9 @@
 > intel_xr_loft_flat (flat renderer in presence) + panel 8e3fafa7f tablet_client.py, /tablet page with touch
 > and Xbox controller (Gamepad API; needs a secure page: USB 127.0.0.1 or HTTPS), "Join the Loft" on the tablet
 > card. Verified on the tablet (render, presence, tap-to-sit, look). Each renderer uses ~9 MiB of CPU-visible
-> VRAM (see the ReBAR note below). TODO: drinking and voice from the tablet, a real Xbox pad test.
+> VRAM (see the ReBAR note below). Then (Loft 4d2e604, panel d0e52f206): tap/A a glass to drink, Menu
+> (Pictures/Videos) and voice chat with the headsets (PipeWire nodes linked by xr-voice.sh). TODO: accept the
+> tablet's mic prompt and test voice with a streaming Quest; test a real Xbox pad.
 
 > **Live re-open check (Claude, 2026-09-28 18:41-18:55) - partial:** live runtime now runs the step-15
 > binary (72 Hz interval confirmed). 30 diagnostic requests -> 18 re-opens (74-94 ms), 0 faults, runtime
