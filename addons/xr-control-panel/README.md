@@ -31,9 +31,18 @@ bash addons/xr-control-panel/install.sh
 bash addons/xr-control-panel/install.sh --runtime-root /ai/intel-xr-prototype
 ```
 
-Options: `--port 8083`, `--bind 127.0.0.1`, `--prefix DIR`. Open http://127.0.0.1:8083/.
+Options: `--port 8083`, `--bind 127.0.0.1`, `--prefix DIR`, `--no-firewall`. Open http://127.0.0.1:8083/.
 Service: `systemctl --user status xr-control-panel.service`; logs:
 `journalctl --user -u xr-control-panel.service`.
+
+Firewall: with Wi-Fi access on (Settings, Panel access) and ufw active, install.sh opens the
+panel's HTTP and HTTPS ports (`port`, `https_port`) to each private (RFC 1918) network of this
+PC, one rule per network, e.g.
+`ufw allow from 192.168.86.0/24 to any port 8083,8483 proto tcp comment 'XR Control Panel (LAN)'`.
+It asks for sudo in a terminal and otherwise prints the commands; existing rules are skipped.
+`bash addons/xr-control-panel/firewall.sh show` prints the rules; `... allow` adds them (run it
+after turning Wi-Fi access on later, or with `--subnet CIDR` for one network). Only ufw is
+handled.
 
 ## Uninstall
 
@@ -41,6 +50,11 @@ Service: `systemctl --user status xr-control-panel.service`; logs:
 bash addons/xr-control-panel/uninstall.sh          # keeps config and captures
 bash addons/xr-control-panel/uninstall.sh --purge  # also deletes config and captures
 ```
+
+It stops and removes the service and the installed app (refusing any `--prefix` folder that is
+not a panel installation), and deletes the panel's firewall rules: only IPv4 TCP allow rules
+commented exactly `XR Control Panel (LAN)`, each by its full rule, never by number; every other
+rule stays. `--keep-firewall` leaves them.
 
 ## Configuration
 

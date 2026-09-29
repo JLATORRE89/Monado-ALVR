@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Install the XR Control Panel add-on as a systemd user service.
 #
-#   bash install.sh [--runtime-root DIR] [--port N] [--bind ADDR] [--prefix DIR]
+#   bash install.sh [--runtime-root DIR] [--port N] [--bind ADDR] [--prefix DIR] [--no-firewall]
 #
 # The panel is independent of the Intel XR runtime: without --runtime-root it manages
 # headsets only (ADB screenshots/recordings, client launch/close). Uninstall with
 # uninstall.sh; the runtime keeps working either way.
+# With Wi-Fi access on (Settings, Panel access) and ufw active, the panel's ports are opened to
+# this PC's local networks (firewall.sh; asks for sudo, or prints the commands). --no-firewall skips it.
 set -Eeuo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,6 +19,7 @@ UNIT="$UNIT_DIR/xr-control-panel.service"
 PORT=""
 BIND=""
 RUNTIME_ROOT=""
+FIREWALL=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,7 +27,8 @@ while [[ $# -gt 0 ]]; do
     --port) PORT="$2"; shift 2 ;;
     --bind) BIND="$2"; shift 2 ;;
     --prefix) PREFIX="$2"; shift 2 ;;
-    -h|--help) sed -n 2,9p "$0"; exit 0 ;;
+    --no-firewall) FIREWALL=0; shift ;;
+    -h|--help) sed -n 2,11p "$0"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -55,6 +59,14 @@ if bind: cfg["bind"] = bind
 path.write_text(json.dumps(cfg, indent=2) + "\n")
 print(f"Config: {path} -> {cfg}")
 PY
+
+# Let Wi-Fi devices (tablets, headset browsers) reach the panel through the firewall.
+LAN_ACCESS="$("$PYTHON" -c 'import json,sys; print(int(bool(json.load(open(sys.argv[1])).get("lan_access"))))' "$CONFIG")"
+if [[ $FIREWALL == 1 && $LAN_ACCESS == 1 ]]; then
+  bash "$SRC/firewall.sh" allow --config "$CONFIG" || echo "WARNING: firewall rules not added; see: bash $SRC/firewall.sh show"
+elif [[ $FIREWALL == 1 ]]; then
+  echo "Firewall: Wi-Fi access is off; after turning it on, run: bash $SRC/firewall.sh allow"
+fi
 
 # Replace the earlier built-in UI service if present.
 if [[ -f "$UNIT_DIR/intel-xr-client-ui.service" ]]; then
