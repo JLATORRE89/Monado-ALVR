@@ -346,12 +346,25 @@ frames to the page (at most two unacknowledged, so slow Wi-Fi gets fewer fresh f
 rather than lag) and validated input back. A renderer is stopped 20 s after its page
 closes; a second page for the same tablet replaces the first.
 
-Controls: drag to look, on-screen stick to walk, tap a chair to sit (or the bartender to
-say hello), Stand up. An Xbox (or other standard) controller paired with the tablet
-works too: left stick walks, right stick looks, A sits on the chair at the centre dot or
-greets the bartender, B stands up. Browsers expose controllers only to secure pages, so
-use the USB-opened page (`http://127.0.0.1`) or the HTTPS address on Wi-Fi, not plain
-HTTP. Not yet included: drinking from the tablet, microphone/voice.
+Controls: drag to look, on-screen stick to walk, tap a glass to drink (within 2.5 m, the
+same raise-and-sip as the headset), a chair to sit or the bartender to say hello, Stand
+up, Menu, Voice. An Xbox (or other standard) controller paired with the tablet works too:
+left stick walks, right stick looks, A drinks/sits/greets at the centre dot, B stands up,
+Y opens the menu, X mutes voice. In the menu: D-pad or left stick moves, A opens, B goes
+back, LB/RB switch Pictures and Videos. Browsers expose controllers and the microphone
+only to secure pages, so use the USB-opened page (`http://127.0.0.1`) or the HTTPS
+address on Wi-Fi, not plain HTTP.
+
+Menu: Pictures and Videos are the panel's captures (screenshots, recordings, uploads),
+newest first, shown full screen on the tablet (videos play in its browser). The headset's
+test patterns and Quest apps are not offered on a tablet.
+
+Voice (off until the Voice button; then Voice on → Muted → off): the tablet joins the
+headsets' voice chat. `tablet_client.py` runs two `pw-cat` nodes named like a headset
+instance, "ALVR Microphone (tablet-<serial>)" (the tablet's microphone, 24 kHz mono) and
+"ALVR Audio (tablet-<serial>)" (what the tablet hears), and runs `scripts/xr-voice.sh link`
+every 3 s while any tablet has voice on, so each microphone reaches every other headset or
+tablet, never itself. Headset voices are only there while that headset streams.
 
 ### Per-device assistant controls and Tablets tab
 

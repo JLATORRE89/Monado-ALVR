@@ -4,7 +4,14 @@ For each tablet this PC runs intel_xr_loft_flat (the Loft's flat-screen renderer
 presence under the tablet's own id), and relays it over one WebSocket: JPEG frames and state to
 the page, touch input back. Frames are sent only after the page has shown the previous ones
 (at most two in flight), so a slow Wi-Fi link gets fewer, fresh frames instead of a growing delay.
-A renderer with no page connected for IDLE_STOP seconds is stopped. Standard library only.
+A renderer with no page connected for IDLE_STOP seconds is stopped.
+
+Binary WebSocket messages start with a type byte: b"V" + JPEG (to the page), b"A" + 16-bit mono PCM
+at VOICE_RATE (both ways). Voice (off until the page turns it on) joins the headsets' voice chat:
+the tablet's microphone plays into a PipeWire node "ALVR Microphone (<id>)" and a node
+"ALVR Audio (<id>)" records what the tablet hears, the same names ALVR gives a headset of runtime
+instance <id>; scripts/xr-voice.sh links every microphone to every other listener. Standard
+library only (plus PipeWire's pw-cat for voice).
 """
 from __future__ import annotations
 
@@ -14,6 +21,7 @@ import json
 import math
 import os
 import re
+import shutil
 import struct
 import subprocess
 import threading
@@ -23,6 +31,9 @@ from pathlib import Path
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 IDLE_STOP = 20.0
 MAX_IN_FLIGHT = 2
+VOICE_RATE = 24000
+VOICE_CHUNK = VOICE_RATE // 25 * 2  # 40 ms of 16-bit mono
+LINK_INTERVAL = 3.0
 ID_RE = re.compile(r"^[a-z0-9_-]{1,31}$")
 
 
@@ -106,6 +117,69 @@ def command_for(msg: dict) -> str | None:
     return None
 
 
+def pw_cat_command(record: bool, node: str) -> list[str]:
+    """pw-cat for one tablet voice node, not linked anywhere (xr-voice.sh does the linking)."""
+    media = "Stream/Input/Audio" if record else "Stream/Output/Audio"
+    return ["pw-cat", "--record" if record else "--playback", "--target", "0", "--rate", str(VOICE_RATE),
+            "--channels", "1", "--format", "s16", "--latency", "40ms",
+            "-P", f'{{ node.name="{node}" media.class="{media}" }}', "-"]
+
+
+class VoiceBridge:
+    """The tablet's side of voice chat for one page connection: mic() plays the tablet's microphone into
+    "ALVR Microphone (<id>)"; what "ALVR Audio (<id>)" records is passed to on_audio in 40 ms chunks."""
+
+    def __init__(self, cid: str, on_audio, command_fn=pw_cat_command):
+        self.cid = cid
+        self.mic_proc = subprocess.Popen(command_fn(False, f"ALVR Microphone ({cid})"), stdin=subprocess.PIPE,
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.ear_proc = subprocess.Popen(command_fn(True, f"ALVR Audio ({cid})"), stdin=subprocess.DEVNULL,
+                                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        self.on_audio = on_audio
+        os.set_blocking(self.mic_proc.stdin.fileno(), False)  # a stalled PipeWire drops audio, not the page
+        threading.Thread(target=self._listen, daemon=True, name=f"tablet-voice-{cid}").start()
+
+    def _listen(self):
+        out = self.ear_proc.stdout
+        while True:
+            try:
+                data = out.read(VOICE_CHUNK)
+            except (OSError, ValueError):
+                break
+            if not data:
+                break
+            if not data.strip(b"\0"):
+                continue  # nobody is linked or talking: no need to send silence over Wi-Fi
+            try:
+                self.on_audio(data)
+            except OSError:
+                break
+
+    def mic(self, pcm: bytes):
+        if len(pcm) % 2 or len(pcm) > 16384:
+            return
+        try:
+            self.mic_proc.stdin.write(pcm)
+            self.mic_proc.stdin.flush()
+        except (BlockingIOError, BrokenPipeError, ValueError, OSError):
+            pass
+
+    def stop(self):
+        for proc in (self.mic_proc, self.ear_proc):
+            proc.terminate()
+        for proc in (self.mic_proc, self.ear_proc):
+            try:
+                proc.wait(3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(3)
+        for f in (self.mic_proc.stdin, self.ear_proc.stdout):
+            try:
+                f.close()
+            except OSError:
+                pass
+
+
 # ---------------------------------------------------------------- renderer processes
 class FlatSession:
     def __init__(self, binary: Path, cid: str, size: tuple[int, int], env: dict, log_dir: Path | None):
@@ -175,11 +249,29 @@ class FlatSession:
 
 
 class TabletClients:
-    def __init__(self, binary_fn, env_fn, log_dir_fn):
+    def __init__(self, binary_fn, env_fn, log_dir_fn, voice_link_fn=None, voice_command_fn=pw_cat_command):
         self.binary_fn, self.env_fn, self.log_dir_fn = binary_fn, env_fn, log_dir_fn
+        self.voice_link_fn, self.voice_command_fn = voice_link_fn, voice_command_fn
         self.lock = threading.Lock()
         self.sessions: dict[str, FlatSession] = {}
+        self.voices: set[VoiceBridge] = set()
         threading.Thread(target=self._reap, daemon=True, name="tablet-client-reaper").start()
+        threading.Thread(target=self._link_voices, daemon=True, name="tablet-voice-links").start()
+
+    def voice_available(self) -> bool:
+        return self.voice_link_fn is not None and shutil.which(self.voice_command_fn(False, "x")[0]) is not None
+
+    def _link_voices(self):
+        """While a tablet has voice on, link microphones to listeners (ALVR's nodes come and go with streams)."""
+        while True:
+            time.sleep(LINK_INTERVAL)
+            with self.lock:
+                active = bool(self.voices)
+            if active and self.voice_link_fn:
+                try:
+                    self.voice_link_fn()
+                except Exception:  # linking is retried next round
+                    pass
 
     def available(self) -> bool:
         b = self.binary_fn()
@@ -242,6 +334,22 @@ class TabletClients:
                 handler.wfile.write(ws_frame(opcode, data))
                 handler.wfile.flush()
 
+        voice = [None]
+
+        def set_voice(on: bool):
+            with self.lock:
+                if on and not voice[0] and self.voice_available():
+                    voice[0] = VoiceBridge(cid, lambda pcm: send(0x2, b"A" + pcm), self.voice_command_fn)
+                    self.voices.add(voice[0])
+                elif not on and voice[0]:
+                    self.voices.discard(voice[0])
+                    voice[0].stop()
+                    voice[0] = None
+                on_now = voice[0] is not None
+            if on_now and self.voice_link_fn:
+                threading.Thread(target=self.voice_link_fn, daemon=True).start()  # link now, not in 3 s
+            send(0x1, json.dumps({"t": "voice", "on": on_now}).encode())
+
         def reader():
             try:
                 while not closed.is_set():
@@ -251,6 +359,10 @@ class TabletClients:
                     if msg[0] == 0x9:
                         send(0xA, msg[1])
                         continue
+                    if msg[0] == 0x2:
+                        if msg[1][:1] == b"A" and voice[0]:
+                            voice[0].mic(msg[1][1:])
+                        continue
                     if msg[0] != 0x1:
                         continue
                     try:
@@ -258,6 +370,9 @@ class TabletClients:
                     except ValueError:
                         continue
                     if not isinstance(req, dict):
+                        continue
+                    if req.get("t") == "voice":
+                        set_voice(req.get("on") is True)
                         continue
                     if req.get("t") == "ack":
                         with s.cond:
@@ -279,7 +394,8 @@ class TabletClients:
         threading.Thread(target=reader, daemon=True, name=f"tablet-ws-{cid}").start()
         sent_seq, sent, state_sent = 0, 0, None
         try:
-            send(0x1, json.dumps({"t": "hello", "id": cid, "size": list(size)}).encode())
+            send(0x1, json.dumps({"t": "hello", "id": cid, "size": list(size),
+                                  "voice": self.voice_available()}).encode())
             while not closed.is_set():
                 with s.cond:
                     s.cond.wait_for(lambda: closed.is_set() or s.viewer is not me or not s.alive()
@@ -294,7 +410,7 @@ class TabletClients:
                         send(0x1, json.dumps({"t": "state", **state}).encode())
                 if seq != sent_seq and frame and sent - acked[0] < MAX_IN_FLIGHT:
                     sent_seq, sent = seq, sent + 1
-                    send(0x2, frame)
+                    send(0x2, b"V" + frame)
             if not s.alive():
                 send(0x1, json.dumps({"t": "error", "message": "The tablet renderer stopped"}).encode())
             send(0x8, b"")
@@ -302,6 +418,10 @@ class TabletClients:
             pass
         finally:
             closed.set()
+            try:
+                set_voice(False)
+            except OSError:
+                pass
             with s.cond:
                 if s.viewer is me:
                     s.viewer = None

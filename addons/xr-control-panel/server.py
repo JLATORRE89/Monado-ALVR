@@ -1239,10 +1239,16 @@ def flat_loft_env() -> dict:
     return env
 
 
+def link_voice_chat():
+    """Links every headset/tablet microphone to every other listener (scripts/xr-voice.sh link)."""
+    subprocess.run(["bash", str(runtime_script("xr-voice.sh")), "link"], capture_output=True, timeout=15)
+
+
 # Tablets join the Loft as their own users through a flat-screen renderer on this PC.
 TABLET_CLIENTS = TabletClients(
     lambda: runtime_root() / "build/intel-xr-loft/intel_xr_loft_flat" if runtime_root() else None,
-    flat_loft_env, lambda: runtime_root() / "logs" if runtime_root() else None)
+    flat_loft_env, lambda: runtime_root() / "logs" if runtime_root() else None,
+    voice_link_fn=link_voice_chat if runtime_root() else None)
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "XRControlPanel/1"

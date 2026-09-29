@@ -1,20 +1,29 @@
 // Tablet Loft client: shows the frames the panel relays from this tablet's Loft renderer and sends
-// touch, keyboard and game controller input back (see tablet_client.py for the protocol).
+// touch, keyboard and game controller input back (see tablet_client.py for the protocol). Also the
+// Pictures/Videos menu (the panel's captures) and voice chat with the headsets.
 "use strict";
 
-const canvas = document.getElementById("view");
+const $ = (s) => document.querySelector(s);
+const canvas = $("#view");
 const ctx = canvas.getContext("2d");
-const statusEl = document.getElementById("status");
-const standBtn = document.getElementById("stand");
-const stick = document.getElementById("stick");
-const knob = document.getElementById("knob");
-const hint = document.querySelector(".hint");
+const statusEl = $("#status");
+const standBtn = $("#stand");
+const voiceBtn = $("#voice");
+const stick = $("#stick");
+const knob = $("#knob");
+const hint = $(".hint");
+const menu = $("#menu");
+const grid = $("#grid");
+const viewer = $("#viewer");
+const pic = $("#pic");
+const vid = $("#vid");
 
 const LOOK_PER_PX = 0.005;      // radians per dragged CSS pixel
 const PAD_LOOK_SPEED = 2.4;     // radians per second at full right stick
 const PAD_DEADZONE = 0.18;
+const VOICE_RATE = 24000, VOICE_CHUNK = 960; // 40 ms of mono, as tablet_client.py
 
-let ws = null, retry = 0, frameRect = null, lastState = null, padIndex = null;
+let ws = null, retry = 0, frameRect = null, lastState = null, padIndex = null, voiceAvailable = false;
 let look = { dx: 0, dy: 0 }, move = { f: 0, r: 0 }, moveSentZero = true;
 
 function setStatus(text, error = false) {
@@ -32,19 +41,26 @@ function connect() {
   const w = Math.round(window.innerWidth * dpr), h = Math.round(window.innerHeight * dpr);
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   ws = new WebSocket(`${proto}//${location.host}/api/tablet/ws?w=${w}&h=${h}`);
-  ws.binaryType = "blob";
+  ws.binaryType = "arraybuffer";
   setStatus("Connecting…");
   ws.onopen = () => { retry = 0; };
   ws.onmessage = async (ev) => {
     if (typeof ev.data === "string") {
       const msg = JSON.parse(ev.data);
-      if (msg.t === "hello") setStatus("Joining the Loft…");
-      else if (msg.t === "state") showState(msg);
+      if (msg.t === "hello") {
+        setStatus("Joining the Loft…");
+        voiceAvailable = !!msg.voice;
+        voiceBtn.hidden = !voiceAvailable;
+        if (voice.wanted) send({ t: "voice", on: true }); // reconnected: keep talking
+      } else if (msg.t === "state") showState(msg);
+      else if (msg.t === "voice") voiceState(msg.on);
       else if (msg.t === "error") setStatus(msg.message, true);
       return;
     }
+    const kind = new Uint8Array(ev.data, 0, 1)[0];
+    if (kind === 0x41) { playVoice(ev.data); return; } // "A"
     try {
-      const bmp = await createImageBitmap(ev.data);
+      const bmp = await createImageBitmap(new Blob([new Uint8Array(ev.data, 1)], { type: "image/jpeg" }));
       draw(bmp);
       bmp.close();
     } catch (e) { /* a damaged frame: skip it */ }
@@ -52,6 +68,7 @@ function connect() {
   };
   ws.onclose = () => {
     ws = null;
+    voiceState(false, true);
     retry = Math.min(retry + 1, 6);
     setStatus(retry > 2 ? "Disconnected — retrying…" : "Reconnecting…", retry > 2);
     setTimeout(connect, 400 * retry);
@@ -100,6 +117,7 @@ function tapAt(clientX, clientY) {
   const u = (clientX - frameRect.x) / frameRect.w, v = (clientY - frameRect.y) / frameRect.h;
   if (u >= 0 && u <= 1 && v >= 0 && v <= 1) send({ t: "tap", u, v });
 }
+const tapCentre = () => tapAt(window.innerWidth / 2, window.innerHeight / 2);
 
 const drags = new Map(); // pointerId -> {x, y, sx, sy, t}
 canvas.addEventListener("pointerdown", (e) => {
@@ -145,12 +163,20 @@ function stickEnd(e) {
 stick.addEventListener("pointerup", stickEnd);
 stick.addEventListener("pointercancel", stickEnd);
 
-// Keyboard (a tablet keyboard or this PC): WASD / arrows walk, Q/E turn, Enter selects, Esc stands.
+// Keyboard (a tablet keyboard or this PC): WASD / arrows walk, Q/E turn, Enter selects, Esc stands
+// (or closes the menu), M opens the menu.
 const keys = new Set();
 window.addEventListener("keydown", (e) => {
+  if (menuOpen()) {
+    const nav = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", Enter: "select",
+                  Escape: "back", Backspace: "back", m: "menu", M: "menu", "[": "prevTab", "]": "nextTab" }[e.key];
+    if (nav) { e.preventDefault(); menuInput(nav); }
+    return;
+  }
   keys.add(e.key.toLowerCase());
-  if (e.key === "Enter") tapAt(window.innerWidth / 2, window.innerHeight / 2);
+  if (e.key === "Enter") tapCentre();
   if (e.key === "Escape") send({ t: "stand" });
+  if (e.key === "m" || e.key === "M") openMenu();
 });
 window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
 function keyboardMove() {
@@ -159,23 +185,251 @@ function keyboardMove() {
            turn: k("q", "") - k("e", "") };
 }
 
+// ---------------------------------------------------------------- menu: Pictures and Videos
+// The panel's captures (per-headset screenshots/recordings, uploads, GPU results), newest first.
+let items = [], kind = "image", focusIdx = 0, viewing = -1;
+const menuOpen = () => !menu.hidden;
+
+async function openMenu() {
+  menu.hidden = false;
+  move = { f: 0, r: 0 };
+  keys.clear();
+  try {
+    const r = await fetch("/api/captures", { cache: "no-store" });
+    items = r.ok ? (await r.json()).captures || [] : [];
+  } catch (e) { items = []; }
+  items.sort((a, b) => b.mtime - a.mtime);
+  showKind(kind);
+}
+function closeMenu() {
+  closeViewer();
+  menu.hidden = true;
+}
+function listed() { return items.filter((c) => c.type === kind); }
+function mediaUrl(c) { return `/captures/${encodeURIComponent(c.headset)}/${encodeURIComponent(c.file)}`; }
+function showKind(k) {
+  kind = k;
+  for (const b of menu.querySelectorAll(".tab")) b.setAttribute("aria-selected", String(b.dataset.kind === k));
+  const list = listed();
+  grid.replaceChildren(...list.map((c, i) => {
+    const b = document.createElement("button");
+    b.className = "tile";
+    b.addEventListener("click", () => openViewer(i));
+    if (c.type === "image") {
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.alt = "";
+      img.src = mediaUrl(c);
+      b.append(img);
+    } else {
+      const play = document.createElement("span");
+      play.className = "play";
+      play.textContent = "▶";
+      b.append(play);
+    }
+    const cap = document.createElement("span");
+    cap.className = "cap";
+    cap.textContent = new Date(c.mtime * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    b.append(cap);
+    return b;
+  }));
+  $("#menu-empty").hidden = list.length > 0;
+  $("#menu-empty").textContent = k === "image" ? "No pictures yet. Screenshots and uploads from the panel appear here."
+                                               : "No videos yet. Recordings and uploads from the panel appear here.";
+  focusIdx = 0;
+  focusTile();
+}
+function focusTile() {
+  const tiles = grid.querySelectorAll(".tile");
+  tiles.forEach((t, i) => t.classList.toggle("focus", i === focusIdx && padIndex !== null));
+  if (tiles[focusIdx] && padIndex !== null && menuOpen() && viewer.hidden) tiles[focusIdx].focus();
+}
+function gridColumns() {
+  return getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length || 1;
+}
+function openViewer(i) {
+  const list = listed();
+  if (!list[i]) return;
+  viewing = i;
+  const c = list[i];
+  viewer.hidden = false;
+  pic.hidden = c.type !== "image";
+  vid.hidden = c.type !== "video";
+  if (c.type === "image") { vid.pause(); vid.removeAttribute("src"); pic.src = mediaUrl(c); }
+  else { pic.removeAttribute("src"); vid.src = mediaUrl(c); vid.play().catch(() => {}); }
+  $("#viewer-cap").textContent = `${i + 1} / ${list.length}`;
+}
+function closeViewer() {
+  if (viewer.hidden) return;
+  vid.pause();
+  vid.removeAttribute("src");
+  vid.load();
+  viewer.hidden = true;
+  viewing = -1;
+  focusTile();
+}
+function menuInput(action) {
+  const n = listed().length;
+  if (!viewer.hidden) {
+    if (action === "left" && viewing > 0) openViewer(viewing - 1);
+    else if (action === "right" && viewing < n - 1) openViewer(viewing + 1);
+    else if (action === "select" && !vid.hidden) vid.paused ? vid.play() : vid.pause();
+    else if (action === "back") closeViewer();
+    else if (action === "menu") closeMenu();
+    return;
+  }
+  const cols = gridColumns();
+  if (action === "left") focusIdx = Math.max(0, focusIdx - 1);
+  else if (action === "right") focusIdx = Math.min(n - 1, focusIdx + 1);
+  else if (action === "up") focusIdx = Math.max(0, focusIdx - cols);
+  else if (action === "down") focusIdx = Math.min(n - 1, focusIdx + cols);
+  else if (action === "select") return openViewer(focusIdx);
+  else if (action === "prevTab" || action === "nextTab") return showKind(kind === "image" ? "video" : "image");
+  else if (action === "back" || action === "menu") return closeMenu();
+  focusIdx = Math.max(0, focusIdx);
+  focusTile();
+}
+$("#menu-btn").addEventListener("click", openMenu);
+$("#menu-close").addEventListener("click", closeMenu);
+for (const b of menu.querySelectorAll(".tab")) b.addEventListener("click", () => showKind(b.dataset.kind));
+$("#viewer-prev").addEventListener("click", () => menuInput("left"));
+$("#viewer-next").addEventListener("click", () => menuInput("right"));
+$("#viewer-back").addEventListener("click", closeViewer);
+
+// ---------------------------------------------------------------- voice chat with the headsets
+// The microphone streams to the panel as 16-bit PCM (24 kHz mono); others' voices come back the same
+// way and are scheduled on a short jitter buffer. Off until the Voice button (a browser needs a tap
+// to start audio); X mutes/unmutes.
+const voice = { wanted: false, on: false, muted: false, ctx: null, stream: null, node: null, buf: [], next: 0 };
+
+const WORKLET = `class Mic extends AudioWorkletProcessor {
+  process(inputs) { const ch = inputs[0][0]; if (ch) this.port.postMessage(ch.slice(0)); return true; }
+}
+registerProcessor("loft-mic", Mic);`;
+let workletLoaded = false;
+
+async function startVoice() {
+  voice.wanted = true;
+  voiceBtn.textContent = "Voice…";
+  try {
+    voice.ctx = voice.ctx || new AudioContext({ sampleRate: VOICE_RATE });
+    await voice.ctx.resume();
+    voice.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+    if (!workletLoaded) {
+      await voice.ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
+      workletLoaded = true;
+    }
+    const src = voice.ctx.createMediaStreamSource(voice.stream);
+    voice.node = new AudioWorkletNode(voice.ctx, "loft-mic");
+    voice.node.port.onmessage = (e) => micSamples(e.data);
+    src.connect(voice.node);
+    send({ t: "voice", on: true });
+  } catch (e) {
+    stopVoice();
+    setStatus(window.isSecureContext ? "Microphone not available: " + e.message
+                                     : "Voice needs the HTTPS address (or the USB-opened page)", true);
+  }
+}
+function stopVoice() {
+  voice.wanted = false;
+  voice.muted = false;
+  send({ t: "voice", on: false });
+  if (voice.stream) voice.stream.getTracks().forEach((t) => t.stop());
+  if (voice.node) voice.node.disconnect();
+  voice.stream = voice.node = null;
+  voice.buf = [];
+  voiceState(false);
+}
+function voiceState(on, reconnecting = false) {
+  voice.on = on;
+  if (!on && !reconnecting && !voice.wanted && voice.stream) {
+    voice.stream.getTracks().forEach((t) => t.stop());
+    voice.stream = null;
+  }
+  voiceBtn.classList.toggle("primary", on && !voice.muted);
+  voiceBtn.textContent = !on ? "Voice" : voice.muted ? "Muted" : "Voice on";
+  voiceBtn.setAttribute("aria-pressed", String(on));
+}
+function micSamples(f32) {
+  if (!voice.on || voice.muted) return;
+  for (const v of f32) voice.buf.push(v);
+  while (voice.buf.length >= VOICE_CHUNK) {
+    const chunk = voice.buf.splice(0, VOICE_CHUNK);
+    const out = new Uint8Array(1 + VOICE_CHUNK * 2);
+    out[0] = 0x41;
+    const pcm = new DataView(out.buffer, 1);
+    chunk.forEach((v, i) => pcm.setInt16(i * 2, Math.max(-1, Math.min(1, v)) * 32767, true));
+    if (ws && ws.readyState === WebSocket.OPEN && ws.bufferedAmount < 256 * 1024) ws.send(out);
+  }
+}
+function playVoice(buf) {
+  if (!voice.ctx || !voice.on) return;
+  const n = (buf.byteLength - 1) >> 1;
+  if (!n) return;
+  const pcm = new DataView(buf, 1);
+  const ab = voice.ctx.createBuffer(1, n, VOICE_RATE);
+  const ch = ab.getChannelData(0);
+  for (let i = 0; i < n; i++) ch[i] = pcm.getInt16(i * 2, true) / 32768;
+  const src = voice.ctx.createBufferSource();
+  src.buffer = ab;
+  src.connect(voice.ctx.destination);
+  const now = voice.ctx.currentTime;
+  if (voice.next < now + 0.03 || voice.next > now + 0.4) voice.next = now + 0.08; // (re)start or drop lag
+  src.start(voice.next);
+  voice.next += ab.duration;
+}
+function toggleMute() {
+  if (!voice.on) return;
+  voice.muted = !voice.muted;
+  voiceState(true);
+}
+// Voice → Voice on (talking) → Muted → off.
+voiceBtn.addEventListener("click", () => {
+  if (!voice.on && !voice.wanted) startVoice();
+  else if (voice.on && !voice.muted) toggleMute();
+  else stopVoice();
+});
+
 // ---------------------------------------------------------------- game controller (Xbox layout)
-// Standard mapping: left stick walks, right stick looks, A selects the centre dot (sit / greet),
-// B stands up. Chrome only exposes controllers to secure pages, hence the HTTPS note.
+// Standard mapping: left stick walks, right stick looks, A selects the centre dot (drink / sit /
+// greet), B stands up, Y opens the menu, X mutes voice. In the menu: D-pad or left stick moves,
+// A opens, B goes back, LB/RB switch Pictures/Videos. Chrome only exposes controllers to secure pages.
 const padPrev = [];
+let navHeld = null, navNext = 0;
 function deadzone(v) {
   const a = Math.abs(v);
   return a < PAD_DEADZONE ? 0 : Math.sign(v) * (a - PAD_DEADZONE) / (1 - PAD_DEADZONE);
 }
-function pollPad(dt) {
+function pollPad(dt, now) {
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
   const pad = padIndex !== null ? pads[padIndex] : null;
   if (!pad || !pad.connected) return null;
   const pressed = (i) => !!(pad.buttons[i] && pad.buttons[i].pressed);
-  const edge = (i) => pressed(i) && !padPrev[i];
-  if (edge(0)) tapAt(window.innerWidth / 2, window.innerHeight / 2);       // A
-  if (edge(1)) send({ t: "stand" });                                          // B
+  const edges = pad.buttons.map((_, i) => pressed(i) && !padPrev[i]);
   for (let i = 0; i < pad.buttons.length; i++) padPrev[i] = pressed(i);
+  if (menuOpen()) {
+    if (edges[0]) menuInput("select");
+    if (edges[1]) menuInput("back");
+    if (edges[3]) menuInput("menu");
+    if (edges[4]) menuInput("prevTab");
+    if (edges[5]) menuInput("nextTab");
+    // D-pad or left stick, repeating while held.
+    const ax = pad.axes[0] || 0, ay = pad.axes[1] || 0;
+    const dir = pressed(14) || ax < -0.6 ? "left" : pressed(15) || ax > 0.6 ? "right"
+              : pressed(12) || ay < -0.6 ? "up" : pressed(13) || ay > 0.6 ? "down" : null;
+    if (dir && (dir !== navHeld || now >= navNext)) {
+      menuInput(dir);
+      navNext = now + (dir !== navHeld ? 400 : 160);
+    }
+    navHeld = dir;
+    return null;
+  }
+  navHeld = null;
+  if (edges[0]) tapCentre();          // A
+  if (edges[1]) send({ t: "stand" });  // B
+  if (edges[2]) toggleMute();          // X
+  if (edges[3]) openMenu();            // Y
   // Right stick: pushing right turns right (the renderer's positive yaw turns left).
   look.dx += -deadzone(pad.axes[2] || 0) * PAD_LOOK_SPEED * dt;
   look.dy += -deadzone(pad.axes[3] || 0) * PAD_LOOK_SPEED * dt;
@@ -184,28 +438,33 @@ function pollPad(dt) {
 function showPad() {
   stick.hidden = padIndex !== null;
   hint.textContent = padIndex !== null
-    ? "Controller: left stick walks · right stick looks · A sits on the chair at the dot or greets the bartender · B stands up"
-    : "Drag to look around · stick to walk · tap a chair to sit · tap the bartender to say hello";
+    ? "Controller: left stick walks · right stick looks · A drinks, sits or greets at the dot · B stands · Y menu · X mute"
+    : "Drag to look · stick to walk · tap a glass to drink, a chair to sit, the bartender to say hello";
+  if (!window.isSecureContext)
+    hint.textContent += ` · For a controller or voice open https://${location.hostname}:8483/tablet`;
+  focusTile();
 }
 window.addEventListener("gamepadconnected", (e) => { padIndex = e.gamepad.index; showPad(); });
 window.addEventListener("gamepaddisconnected", (e) => {
   if (e.gamepad.index === padIndex) { padIndex = null; showPad(); }
 });
-if (!window.isSecureContext) {
-  hint.textContent += ` · For a game controller open https://${location.hostname}:8483/tablet`;
-}
 
 // ---------------------------------------------------------------- send loop (~30 Hz)
 let lastTick = performance.now();
 function tick(now) {
   const dt = Math.min((now - lastTick) / 1000, 0.1);
   lastTick = now;
-  const pad = pollPad(dt);
-  const kb = keyboardMove();
-  look.dx += kb.turn * PAD_LOOK_SPEED * dt; // Q turns left (positive yaw)
-  let m = move;
-  if (kb.f || kb.r) m = { f: kb.f, r: kb.r };
-  else if (pad && (pad.f || pad.r)) m = pad;
+  const pad = pollPad(dt, now);
+  let m = { f: 0, r: 0 };
+  if (!menuOpen()) {
+    const kb = keyboardMove();
+    look.dx += kb.turn * PAD_LOOK_SPEED * dt; // Q turns left (positive yaw)
+    m = move;
+    if (kb.f || kb.r) m = { f: kb.f, r: kb.r };
+    else if (pad && (pad.f || pad.r)) m = pad;
+  } else {
+    look = { dx: 0, dy: 0 };
+  }
   if (m.f || m.r) {
     send({ t: "move", f: m.f, r: m.r });
     moveSentZero = false;
@@ -221,7 +480,7 @@ function tick(now) {
 setInterval(() => tick(performance.now()), 33);
 
 standBtn.addEventListener("click", () => send({ t: "stand" }));
-document.getElementById("fullscreen").addEventListener("click", () => {
+$("#fullscreen").addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => {});
 });

@@ -141,7 +141,7 @@ class RelayTests(unittest.TestCase):
         sock, f, status = self.open_ws()
         self.assertIn(b"101", status)
         op, hello = read_frame(f)
-        self.assertEqual(json.loads(hello), {"t": "hello", "id": "pc-viewer", "size": [1280, 800]})
+        self.assertEqual(json.loads(hello), {"t": "hello", "id": "pc-viewer", "size": [1280, 800], "voice": False})
         got = {}
         while "frame" not in got or "state" not in got:
             op, data = read_frame(f)
@@ -149,7 +149,7 @@ class RelayTests(unittest.TestCase):
                 got["frame"] = data
             elif op == 1:
                 got["state"] = json.loads(data)
-        self.assertTrue(got["frame"].startswith(b"\xff\xd8frame"))
+        self.assertTrue(got["frame"].startswith(b"V\xff\xd8frame"))
         self.assertEqual(got["state"]["t"], "state")
         # Flow control: without acks only MAX_IN_FLIGHT frames arrive.
         sock.settimeout(0.6)
@@ -191,6 +191,64 @@ class RelayTests(unittest.TestCase):
         self.assertEqual(self.s.TABLET_CLIENTS.status()[0]["size"], [800, 600])
         a.close()
         b.close()
+
+    def test_voice_bridge(self):
+        # Fake pw-cat: playback appends what it receives to a file, record emits a numbered chunk every 40 ms.
+        d = Path(self.tmp.name)
+        fake = d / "fake_pwcat"
+        fake.write_text(textwrap.dedent('''\
+            #!/usr/bin/env python3
+            import sys, time
+            node, record = sys.argv[1], sys.argv[2] == "rec"
+            open(sys.argv[3] + "/nodes", "a").write(node + "\\n")
+            if record:
+                n = 0
+                while True:
+                    n += 1
+                    sys.stdout.buffer.write(bytes([n % 256]) * 1920); sys.stdout.flush(); time.sleep(0.04)
+            with open(sys.argv[3] + "/mic.raw", "ab") as f:
+                while True:
+                    b = sys.stdin.buffer.read(1)
+                    if not b:
+                        break
+                    f.write(b); f.flush()
+            '''))
+        fake.chmod(0o755)
+        links = []
+        clients = self.s.TABLET_CLIENTS
+        clients.voice_command_fn = lambda record, node: [str(fake), node, "rec" if record else "play", str(d)]
+        clients.voice_link_fn = lambda: links.append(time.time())
+        sock, f, status = self.open_ws()
+        self.assertTrue(json.loads(read_frame(f)[1])["voice"])
+        sock.sendall(client_frame(2, b"A" + b"\x01\x02" * 10))  # ignored: voice is off
+        sock.sendall(client_frame(1, b'{"t":"voice","on":true}'))
+        seen = {"voice": None, "audio": 0}
+        deadline = time.time() + 5
+        while time.time() < deadline and (seen["voice"] is None or seen["audio"] < 3):
+            op, data = read_frame(f)
+            if op == 1 and json.loads(data)["t"] == "voice":
+                seen["voice"] = json.loads(data)["on"]
+            elif op == 2 and data[:1] == b"A":
+                self.assertEqual(len(data), 1 + tc.VOICE_CHUNK)
+                seen["audio"] += 1
+            elif op == 2:
+                sock.sendall(client_frame(1, b'{"t":"ack"}'))
+        self.assertEqual((seen["voice"], seen["audio"] >= 3), (True, True))
+        sock.sendall(client_frame(2, b"A" + b"\x01\x02" * 50))
+        sock.sendall(client_frame(2, b"A" + b"\x03"))  # odd length: dropped
+        mic = d / "mic.raw"
+        deadline = time.time() + 3
+        while time.time() < deadline and (not mic.exists() or mic.stat().st_size < 100):
+            time.sleep(0.05)
+        self.assertEqual(mic.read_bytes(), b"\x01\x02" * 50)
+        self.assertEqual(sorted((d / "nodes").read_text().split("\n")[:2]), ["ALVR Audio (pc-viewer)", "ALVR Microphone (pc-viewer)"])
+        self.assertTrue(links)  # linked at once
+        self.assertEqual(len(clients.voices), 1)
+        sock.close()  # the page goes: voice stops with it
+        deadline = time.time() + 3
+        while time.time() < deadline and clients.voices:
+            time.sleep(0.05)
+        self.assertEqual(clients.voices, set())
 
     def test_plain_request_and_missing_renderer(self):
         import urllib.request
