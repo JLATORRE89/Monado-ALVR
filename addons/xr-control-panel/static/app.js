@@ -112,7 +112,8 @@ function headsetCard(h) {
   const badges = [el("span", { class: "badge accent" }, h.streaming_only ? (h.alvr?.[0]?.state || "Known headset") : h.transport === "wifi" ? "ADB Wi‑Fi" : h.transport === "usb" ? "USB" : "ADB")];
   if (h.state !== "device" && !h.streaming_only) badges.push(el("span", { class: "badge warn" }, h.state));
   else if (h.is_tablet) badges.push(el("span", { class: "badge accent" }, "Tablet"));
-  else if (!h.is_quest) badges.push(el("span", { class: "badge" }, "Not a Quest"));
+  else if (h.is_quest) badges.push(el("span", { class: "badge accent" }, "Headset"));
+  else badges.push(el("span", { class: "badge" }, "Android device"));
   if (h.recording) badges.push(el("span", { class: "badge bad" }, "● Recording"));
 
   const card = el("article", { class: "card headset-card" },
@@ -120,51 +121,40 @@ function headsetCard(h) {
       el("div", {}, el("p", { class: "headset-title" }, h.model || "Android device"), el("div", { class: "serial" }, h.serial)),
       el("div", { class: "badges" }, badges)));
 
-  if (h.streaming_only) {
-    card.append(el("div", { class: "device-details" },
-      el("div", { class: "device-status" }, fact("ALVR", (h.alvr || []).map(a => a.state).join(", ")),
-        fact("Device controls", "Not connected")),
-      el("div", { class: "device-network" }, fact("Wi-Fi IPv4", h.ip || "—"),
-        fact("Wi-Fi IPv6", (h.ipv6 || []).join("\n") || "—"))));
-    card.append(el("p", { class: "muted" }, "Known to ALVR. Reconnect USB and allow debugging to restore screenshots, app management and device controls."));
-    return card;
-  }
-  if (h.state !== "device") {
-    card.append(el("p", { class: "muted" }, h.state === "unauthorized"
-      ? "Unlock the device and allow USB debugging for this computer." : `ADB state: ${h.state}`));
-    return card;
-  }
+  const managed = h.state === "device";
+  const unavailable = h.state === "unauthorized"
+    ? "Unlock the device and allow USB debugging for this computer."
+    : "Reconnect USB and allow debugging to restore device controls.";
   const alvr = (h.alvr || []).map(a => `${a.name} (${a.state || "?"})`).join(", ") || "—";
   card.append(el("div", { class: "device-details" },
     el("div", { class: "device-status" },
       fact("Battery", h.battery == null ? "—" : `${h.battery}%${h.charging ? " ⚡" : ""}`),
-      fact("Display", h.awake ? "Awake" : "Asleep"),
-      fact("Client", h.is_tablet ? "Panel browser" : h.client_installed ? (h.client_running ? "Running" : "Installed") : "Not installed")),
+      fact("Display", h.awake == null ? "—" : h.awake ? "Awake" : "Asleep"),
+      fact("Client", h.is_tablet ? "Browser client" : !managed ? "—" : h.client_installed ? (h.client_running ? "Running" : "Installed") : "Not installed")),
     el("div", { class: "device-network" },
       fact("Wi-Fi IPv4", h.ip || "—"),
       fact("Wi-Fi IPv6", (h.ipv6 || []).join("\n") || "—"),
-      fact(h.is_tablet ? "Loft" : "ALVR", h.is_tablet ? "Browser client (touch or Xbox controller)" : alvr))));
+      fact("Loft connection", h.is_tablet ? "Browser (touch or controller)" : alvr))));
+  card.append(el("p", { class: "device-connection muted" }, managed
+    ? "Device controls connected." : unavailable));
   if (h.is_quest || h.is_tablet) card.append(assistantControls(h));
-  if (h.is_tablet) {
-    card.append(el("div", { class: "actions" },
-      h.awake ? null : actionButton("Wake", h.serial, "wake"),
-      actionButton("Join the Loft", h.serial, "loft-on-tablet", "btn primary"),
-      actionButton("Open panel on tablet", h.serial, "panel-in-headset"),
-      actionButton("Pair tablet for Wi-Fi", h.serial, "pair-wifi")));
-    return card;
+  const deviceAction = (label, action, cls = "btn", extra = {}) => actionButton(label, h.serial, action, cls,
+    { ...extra, disabled: !managed || !!extra.disabled, title: managed ? "" : unavailable });
+  const actions = [];
+  if (h.is_tablet) actions.push(deviceAction("Join the Loft", "loft-on-tablet", "btn primary"));
+  else if (h.is_quest) {
+    actions.push(deviceAction("Screenshot", "screenshot", "btn primary"),
+      deviceAction(h.recording ? "Stop recording" : "Start recording", h.recording ? "record-stop" : "record-start",
+        h.recording ? "btn recording" : "btn"));
+    if (h.client_installed || !managed) actions.push(deviceAction(h.client_running ? "Close client" : "Launch client",
+      h.client_running ? "client-close" : "client-launch", "btn",
+      h.client_running ? { "data-confirm": "Close the ALVR client on this headset?" } : {}));
   }
-  if (!h.is_quest) return card;
-
-  card.append(el("div", { class: "actions" },
-    actionButton("Screenshot", h.serial, "screenshot", "btn primary"),
-    h.recording ? actionButton("Stop recording", h.serial, "record-stop", "btn recording")
-                : actionButton("Start recording", h.serial, "record-start"),
-    h.client_installed ? (h.client_running
-      ? actionButton("Close client", h.serial, "client-close", "btn", { "data-confirm": "Close the ALVR client on this headset?" })
-      : actionButton("Launch client", h.serial, "client-launch")) : null,
-    h.awake ? null : actionButton("Wake", h.serial, "wake"),
-    actionButton("Open panel in headset", h.serial, "panel-in-headset"),
-    actionButton("Pair headset for Wi-Fi", h.serial, "pair-wifi")));
+  if (h.is_quest || h.is_tablet) {
+    actions.push(deviceAction("Wake", "wake", "btn", { disabled: !managed || h.awake === true }),
+      deviceAction("Open panel", "panel-in-headset"), deviceAction("Pair for Wi-Fi", "pair-wifi"));
+    card.append(el("div", { class: "actions" }, actions));
+  }
   return card;
 }
 let headsetsBusy = false;
@@ -1036,9 +1026,10 @@ $("#sourceLoadApps").addEventListener("click", e => run(e.currentTarget, async (
 
 // Assistant changes belong to the device card; a single selector keeps the controls compact.
 function assistantControls(device) {
+  const available = device.state === "device";
   const details = el("details", { class: "add-entry" }, el("summary", {}, "Assistant controls"));
-  const state = el("p", { class: "muted", role: "status" }, "Open to read this device’s assistant.");
-  const choice = el("select", { "aria-label": `Assistant action for ${device.model || device.serial}` },
+  const state = el("p", { class: "muted", role: "status" }, available ? "Open to read this device’s assistant." : "Connect and authorize this device to manage its assistant.");
+  const choice = el("select", { disabled: !available, "aria-label": `Assistant action for ${device.model || device.serial}` },
     el("option", { value: "" }, "Choose an action…"),
     el("option", { value: "off" }, "Turn default assistant off"),
     el("option", { value: "google" }, "Use Google / Gemini"),
@@ -1048,7 +1039,7 @@ function assistantControls(device) {
     el("option", { value: "refresh" }, "Refresh current assistant"));
   const apply = el("button", { class: "btn", disabled: true }, "Apply");
   let busy = false, ready = false;
-  function enabled() { apply.disabled = busy || !choice.value || (!ready && !["settings", "refresh"].includes(choice.value)); }
+  function enabled() { apply.disabled = !available || busy || !choice.value || (!ready && !["settings", "refresh"].includes(choice.value)); }
   async function read() {
     ready = false;
     try {
@@ -1064,7 +1055,7 @@ function assistantControls(device) {
     enabled();
   }
   choice.addEventListener("change", enabled);
-  details.addEventListener("toggle", () => { if (details.open && !busy) read(); });
+  details.addEventListener("toggle", () => { if (available && details.open && !busy) read(); });
   apply.addEventListener("click", async () => {
     if (busy) return;
     const action = choice.value;

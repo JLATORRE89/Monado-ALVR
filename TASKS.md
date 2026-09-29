@@ -1,3 +1,8 @@
+> **Device-card parity (Codex, 2026-09-28):** ALVR-only/disconnected headset cards use
+> the same six fields, assistant section and action layout as tablets. Unknown values
+> shown as dash, unavailable actions disabled. Tested disconnected Quest + connected
+> tablet at1280/800/390px; static-only deployment, no service restarts.
+
 > **Panel visibility/layout + individual mute (Codex, 2026-09-28):** Headsets merges
 > trusted ALVR inventory with ADB devices, preserves offline Quest cards and deduplicates
 > aliases. ADB-only actions remain unavailable until debugging reconnects. User cannot
