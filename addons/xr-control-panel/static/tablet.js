@@ -9,6 +9,7 @@ const ctx = canvas.getContext("2d");
 const statusEl = $("#status");
 const standBtn = $("#stand");
 const voiceBtn = $("#voice");
+const soundBtn = $("#sound");
 const stick = $("#stick");
 const knob = $("#knob");
 const hint = $(".hint");
@@ -56,6 +57,7 @@ function connect() {
         setStatus("Joining the Loft…");
         voiceAvailable = !!msg.voice;
         voiceBtn.hidden = !voiceAvailable;
+        soundBtn.hidden = !voiceAvailable;
         if (voice.wanted) send({ t: "voice", on: true }); // reconnected: keep talking
       } else if (msg.t === "state") showState(msg);
       else if (msg.t === "voice") voiceState(msg.on);
@@ -101,6 +103,7 @@ document.addEventListener("visibilitychange", () => {
     const old = ws;
     ws = null;
     if (old) old.close();
+    stopVoice();
     voiceState(false, true);
   } else connect();
 });
@@ -328,9 +331,9 @@ $("#viewer-back").addEventListener("click", closeViewer);
 
 // ---------------------------------------------------------------- voice chat with the headsets
 // The microphone streams to the panel as 16-bit PCM (24 kHz mono); others' voices come back the same
-// way and are scheduled on a short jitter buffer. Off until the Voice button (a browser needs a tap
-// to start audio); X mutes/unmutes.
-const voice = { wanted: false, on: false, muted: false, ctx: null, stream: null, node: null, buf: [], next: 0 };
+// way and are scheduled on a short jitter buffer. Listening joins automatically;
+// playback needs a browser gesture. The microphone is separately opt-in; X mutes it.
+const voice = { wanted: true, on: false, muted: false, ctx: null, stream: null, node: null, buf: [], next: 0, micStarting: false, soundMuted: false };
 
 const WORKLET = `class Mic extends AudioWorkletProcessor {
   process(inputs) { const ch = inputs[0][0]; if (ch) this.port.postMessage(ch.slice(0)); return true; }
@@ -338,51 +341,84 @@ const WORKLET = `class Mic extends AudioWorkletProcessor {
 registerProcessor("loft-mic", Mic);`;
 let workletLoaded = false;
 
-async function startVoice() {
-  voice.wanted = true;
-  voiceBtn.textContent = "Voice…";
+// Receiving does not request microphone permission. Browsers may require a tap
+// before AudioContext can play; the first page interaction unlocks room sound.
+async function startSound() {
+  if (document.hidden || voice.soundMuted) return;
   try {
     voice.ctx = voice.ctx || new AudioContext({ sampleRate: VOICE_RATE });
     await voice.ctx.resume();
-    voice.stream = await navigator.mediaDevices.getUserMedia({
+    soundBtn.textContent = voice.ctx.state === "running" ? "Sound on" : "Enable sound";
+    soundBtn.setAttribute("aria-pressed", String(voice.ctx.state === "running"));
+  } catch (e) {
+    soundBtn.textContent = "Enable sound";
+  }
+}
+window.addEventListener("pointerdown", (e) => { if (e.target !== soundBtn && voice.ctx?.state !== "running") startSound(); });
+window.addEventListener("keydown", () => { if (voice.ctx?.state !== "running") startSound(); });
+soundBtn.addEventListener("click", () => {
+  if (voice.ctx?.state === "running" && !voice.soundMuted) {
+    voice.soundMuted = true;
+    if (voice.output) voice.output.gain.value = 0;
+    voice.next = 0;
+    soundBtn.textContent = "Sound off";
+    soundBtn.setAttribute("aria-pressed", "false");
+  } else {
+    voice.soundMuted = false;
+    if (voice.output) voice.output.gain.value = 1;
+    startSound();
+  }
+});
+
+async function startVoice() {
+  if (voice.micStarting || voice.stream) return;
+  voice.micStarting = true;
+  voiceBtn.textContent = "Mic…";
+  try {
+    voice.ctx = voice.ctx || new AudioContext({ sampleRate: VOICE_RATE });
+    await voice.ctx.resume();
+    if (!voice.soundMuted) await startSound();
+    const stream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+    if (document.hidden) { stream.getTracks().forEach(t => t.stop()); return; }
+    voice.stream = stream;
     if (!workletLoaded) {
-      await voice.ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" })));
+      const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
+      try { await voice.ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
       workletLoaded = true;
     }
     const src = voice.ctx.createMediaStreamSource(voice.stream);
     voice.node = new AudioWorkletNode(voice.ctx, "loft-mic");
     voice.node.port.onmessage = (e) => micSamples(e.data);
     src.connect(voice.node);
-    send({ t: "voice", on: true });
+    voice.muted = false;
   } catch (e) {
     stopVoice();
     setStatus(window.isSecureContext ? "Microphone not available: " + e.message
-                                     : "Voice needs the HTTPS address (or the USB-opened page)", true);
+                                     : "Microphone needs HTTPS (or the USB-opened page)", true);
+  } finally {
+    voice.micStarting = false;
+    voiceState(voice.on);
   }
 }
 function stopVoice() {
-  voice.wanted = false;
+  // Turning off the microphone must not turn off incoming room sound.
   voice.muted = false;
-  send({ t: "voice", on: false });
   if (voice.stream) voice.stream.getTracks().forEach((t) => t.stop());
   if (voice.node) voice.node.disconnect();
   voice.stream = voice.node = null;
   voice.buf = [];
-  voiceState(false);
+  voiceState(voice.on);
 }
 function voiceState(on, reconnecting = false) {
   voice.on = on;
-  if (!on && !reconnecting && !voice.wanted && voice.stream) {
-    voice.stream.getTracks().forEach((t) => t.stop());
-    voice.stream = null;
-  }
-  voiceBtn.classList.toggle("primary", on && !voice.muted);
-  voiceBtn.textContent = !on ? "Voice" : voice.muted ? "Muted" : "Voice on";
-  voiceBtn.setAttribute("aria-pressed", String(on));
+  const talking = on && !!voice.stream && !voice.muted;
+  voiceBtn.classList.toggle("primary", talking);
+  voiceBtn.textContent = !voice.stream ? "Mic off" : voice.muted ? "Mic muted" : "Mic on";
+  voiceBtn.setAttribute("aria-pressed", String(talking));
 }
 function micSamples(f32) {
-  if (!voice.on || voice.muted) return;
+  if (!voice.on || voice.muted || !voice.stream || document.hidden) return;
   for (const v of f32) voice.buf.push(v);
   while (voice.buf.length >= VOICE_CHUNK) {
     const chunk = voice.buf.splice(0, VOICE_CHUNK);
@@ -394,7 +430,7 @@ function micSamples(f32) {
   }
 }
 function playVoice(buf) {
-  if (!voice.ctx || !voice.on) return;
+  if (!voice.ctx || !voice.on || voice.soundMuted || voice.ctx.state !== "running" || document.hidden) return;
   const n = (buf.byteLength - 1) >> 1;
   if (!n) return;
   const pcm = new DataView(buf, 1);
@@ -403,21 +439,22 @@ function playVoice(buf) {
   for (let i = 0; i < n; i++) ch[i] = pcm.getInt16(i * 2, true) / 32768;
   const src = voice.ctx.createBufferSource();
   src.buffer = ab;
-  src.connect(voice.ctx.destination);
+  if (!voice.output) { voice.output = voice.ctx.createGain(); voice.output.connect(voice.ctx.destination); }
+  src.connect(voice.output);
   const now = voice.ctx.currentTime;
   if (voice.next < now + 0.03 || voice.next > now + 0.4) voice.next = now + 0.08; // (re)start or drop lag
   src.start(voice.next);
   voice.next += ab.duration;
 }
 function toggleMute() {
-  if (!voice.on) return;
+  if (!voice.stream) return;
   voice.muted = !voice.muted;
-  voiceState(true);
+  voice.buf = [];
+  voice.stream.getAudioTracks().forEach(t => { t.enabled = !voice.muted; });
+  voiceState(voice.on);
 }
-// Voice → Voice on (talking) → Muted → off.
 voiceBtn.addEventListener("click", () => {
-  if (!voice.on && !voice.wanted) startVoice();
-  else if (voice.on && !voice.muted) toggleMute();
+  if (!voice.stream) startVoice();
   else stopVoice();
 });
 

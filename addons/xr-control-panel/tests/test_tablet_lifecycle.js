@@ -37,3 +37,20 @@ assert.equal(timers.size,1,'network failures should still retry');
 document.hidden=true;events.visibilitychange();
 assert.equal(timers.size,0,'hidden tab cancels a scheduled retry');
 console.log('Tablet lifecycle: hide/resume, takeover, stale close and network retry passed');
+
+(async () => {
+  let micRequests = 0;
+  context.AudioContext = class { constructor(){this.state='suspended'} async resume(){this.state='running'} };
+  context.navigator.mediaDevices = {getUserMedia:async()=>{micRequests++;throw Error('denied')}};
+  document.hidden=false;
+  await vm.runInContext('startSound()',context);
+  assert.equal(micRequests,0,'listening must not request microphone permission');
+  assert.equal(vm.runInContext('voice.ctx.state',context),'running');
+  assert.equal(vm.runInContext('voice.wanted',context),true);
+  await vm.runInContext('startVoice()',context);
+  assert.equal(micRequests,1);
+  assert.equal(vm.runInContext('voice.wanted',context),true,'mic denial must not turn off listening');
+  vm.runInContext('stopVoice()',context);
+  assert.equal(vm.runInContext('voice.wanted',context),true);
+  console.log('Tablet sound: listening without mic permission, mic denial/off preserve playback');
+})().catch(e=>{console.error(e);process.exitCode=1});

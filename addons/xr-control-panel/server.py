@@ -43,6 +43,7 @@ from web_proxy import ProxyManager
 from software_updates import UpdateLibrary
 from update_peers import Peers, ShareKeys, cert_fingerprint_file, pretty, share_listing
 from tablet_client import TabletClients, client_id, view_size
+from tablet_audio import HeadsetAudioRouter
 
 import gpu_worker  # noqa: E402  optional add-on: remote shared GPU (Local AI Stack)
 
@@ -1242,9 +1243,15 @@ def flat_loft_env() -> dict:
     return env
 
 
+TABLET_APP_AUDIO = HeadsetAudioRouter()
+
+
 def link_voice_chat():
     """Links every headset/tablet microphone to every other listener (scripts/xr-voice.sh link)."""
     subprocess.run(["bash", str(runtime_script("xr-voice.sh")), "link"], capture_output=True, timeout=15)
+    with TABLET_CLIENTS.lock:
+        listeners = {v.cid for v in TABLET_CLIENTS.voices}
+    TABLET_APP_AUDIO.sync(listeners)
 
 
 # Tablets join the Loft as their own users through a flat-screen renderer on this PC.

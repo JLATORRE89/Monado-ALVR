@@ -1,3 +1,14 @@
+> **Tablet listening + proximity voice (Codex, 2026-09-28):** Separate Sound/Mic;
+> automatic listening after browser gesture, mic opt-in; microphone off/denied does
+> not disable listening. scripts/xr-voice.py limits voice to 3m entry/3.5m exit using
+> passive presence; unknown positions silent, self excluded. User reports nearby
+> voice audible and stops after walking away. tablet_audio.py mirrors non-mic sources
+> already feeding primary ALVR Audio; app-audio live acceptance still pending.
+> Native Quest app capture is NOT implemented. 17 tablet tests + JS sound/lifecycle
+> tests pass. PipeWire snapshot parser handles appended change arrays.
+> Current new report: outdoor/lake image quality degrades on Quest; investigate
+> streaming performance/bitrate before changing the artwork.
+
 > **Codex tablet pause investigation (2026-09-28):** User confirms real Bluetooth Xbox
 > controller walking/looking works on SM-X210, reports pauses. Fixed hidden-tab session
 > contention: inactive page releases connection/input, resumes when visible; explicit

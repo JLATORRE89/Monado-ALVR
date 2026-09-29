@@ -64,6 +64,7 @@
                 padding: 10px max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)); }
   .viewer-bar .spacer { flex: 1; }
   @media (max-width: 600px) {
+    .bar { flex-wrap: wrap; }
     #stick { width: 120px; height: 120px; } .hint { display: none; } #fullscreen { display: none; }
     .grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
   }
@@ -76,7 +77,8 @@
   <span id="status" class="pill" role="status">Connecting…</span>
   <span class="spacer"></span>
   <button id="stand" class="primary" hidden>Stand up</button>
-  <button id="voice" hidden aria-pressed="false">Voice</button>
+  <button id="sound" hidden aria-pressed="false">Enable sound</button>
+  <button id="voice" hidden aria-pressed="false">Mic off</button>
   <button id="menu-btn">Menu</button>
   <button id="fullscreen">Full screen</button>
 </div>

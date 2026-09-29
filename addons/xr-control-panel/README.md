@@ -379,12 +379,23 @@ Menu: Pictures and Videos are the panel's captures (screenshots, recordings, upl
 newest first, shown full screen on the tablet (videos play in its browser). The headset's
 test patterns and Quest apps are not offered on a tablet.
 
-Voice (off until the Voice button; then Voice on → Muted → off): the tablet joins the
-headsets' voice chat. `tablet_client.py` runs two `pw-cat` nodes named like a headset
-instance, "ALVR Microphone (tablet-<serial>)" (the tablet's microphone, 24 kHz mono) and
-"ALVR Audio (tablet-<serial>)" (what the tablet hears), and runs `scripts/xr-voice.sh link`
-every 3 s while any tablet has voice on, so each microphone reaches every other headset or
-tablet, never itself. Headset voices are only there while that headset streams.
+Sound joins automatically without requesting microphone access. The first tap/key in the
+Loft unlocks browser playback; **Enable sound** is also available. **Sound on/off** only
+controls listening. **Mic off/on** requests/stops the tablet microphone separately, and
+X mutes an enabled microphone. Hiding the tab stops its microphone; returning resumes
+listening but requires explicitly enabling the microphone again.
+
+Voice uses player positions: enter within 3 metres, leave beyond 3.5 metres on the floor
+plane (the buffer avoids toggling at the boundary). Unknown/absent positions are silent;
+a user never hears their own microphone. scripts/xr-voice.py passively observes Loft
+presence and maintains only nearby microphone connections; xr-voice.sh remains the entry
+point for link/watch/unlink/status. Routing refreshes approximately twice a second.
+
+For app sound, tablet_audio.py mirrors only non-microphone sources already feeding the
+primary streamed headset's ALVR Audio node. It does not capture arbitrary desktop sound
+or the headset mix (which would echo the tablet microphone). App sound is not limited by
+conversation distance. Native Quest apps that do not send their audio through ALVR need
+a separate capture integration. The current tablet relay is 24 kHz mono.
 
 ### Per-device assistant controls and Tablets tab
 

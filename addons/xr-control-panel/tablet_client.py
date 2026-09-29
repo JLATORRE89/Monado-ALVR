@@ -33,7 +33,7 @@ IDLE_STOP = 20.0
 MAX_IN_FLIGHT = 2
 VOICE_RATE = 24000
 VOICE_CHUNK = VOICE_RATE // 25 * 2  # 40 ms of 16-bit mono
-LINK_INTERVAL = 3.0
+LINK_INTERVAL = 0.5
 ID_RE = re.compile(r"^[a-z0-9_-]{1,31}$")
 
 
