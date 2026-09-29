@@ -394,7 +394,9 @@ point for link/watch/unlink/status. Routing refreshes approximately twice a seco
 For app sound, tablet_audio.py mirrors only non-microphone sources already feeding the
 primary streamed headset's ALVR Audio node. It does not capture arbitrary desktop sound
 or the headset mix (which would echo the tablet microphone). App sound is not limited by
-conversation distance. Native Quest apps that do not send their audio through ALVR need
+conversation distance. **Menu → People** lets each tablet/browser user mute individual
+players. Choices are saved per listener in `voice-mutes.json`, survive leaving/re-entering
+range and never mute the speaker for other listeners. Native Quest apps that do not send their audio through ALVR need
 a separate capture integration. The current tablet relay is 24 kHz mono.
 
 ### Per-device assistant controls and Tablets tab

@@ -43,7 +43,7 @@ from web_proxy import ProxyManager
 from software_updates import UpdateLibrary
 from update_peers import Peers, ShareKeys, cert_fingerprint_file, pretty, share_listing
 from tablet_client import TabletClients, client_id, view_size
-from tablet_audio import HeadsetAudioRouter
+from tablet_audio import HeadsetAudioRouter, VoicePreferences
 
 import gpu_worker  # noqa: E402  optional add-on: remote shared GPU (Local AI Stack)
 
@@ -240,6 +240,43 @@ def alvr_clients() -> dict:
             return {"available": False, "error": str(e), "clients": {}}
 
 
+def add_streaming_headsets(headsets, clients):
+    """Streaming discovery is independent of ADB management availability."""
+    seen_names = {a["name"] for h in headsets for a in h.get("alvr", [])}
+    seen_ips = {h.get("ip") for h in headsets if h.get("ip")}
+    entries = clients.get("clients", {})
+    specific = any(n.startswith("usb-") and c.get("trusted") for n,c in entries.items())
+    for name, c in sorted(entries.items(), key=lambda item: not item[0].startswith("usb-")):
+        if name == "client.wired" and specific and c.get("connection_state") == "Disconnected":
+            continue
+        if name in seen_names or not c.get("trusted") and c.get("connection_state") not in ("Streaming", "Connected"):
+            continue
+        address = c.get("current_ip") or next(iter(c.get("manual_ips") or []), None)
+        if not address and name.startswith("direct-"):
+            address = name[7:]
+        if address and address in seen_ips:
+            continue
+        serial = name[4:] if name.startswith("usb-") else name
+        existing = next((h for h in headsets if h["serial"] == serial), None)
+        entry = {"name": name, "state": c.get("connection_state"), "trusted": c.get("trusted")}
+        if existing is not None:
+            existing.setdefault("alvr", []).append(entry)
+            continue
+        ipv4, ipv6 = None, []
+        try:
+            ip = ipaddress.ip_address(address)
+            if ip.version == 4: ipv4 = str(ip)
+            else: ipv6 = [str(ip)]
+        except (ValueError, TypeError):
+            pass
+        headsets.append({"serial": serial, "model": c.get("display_name") or "Streaming headset",
+                         "state": "streaming-only", "streaming_only": True, "transport": "stream",
+                         "is_quest": "quest" in c.get("display_name", "").lower(), "is_tablet": False,
+                         "ip": ipv4, "ipv6": ipv6, "alvr": [entry]})
+        if address: seen_ips.add(address)
+    return headsets
+
+
 def headsets_snapshot(max_age: float = 2.0) -> dict:
     with _cache_lock:
         if _cache["data"] is not None and time.time() - _cache["time"] < max_age:
@@ -254,6 +291,7 @@ def headsets_snapshot(max_age: float = 2.0) -> dict:
             if any(address in ips or address in name for address in addresses) or (
                     name == "client.wired" and h.get("transport") == "usb" and h.get("client_running")):
                 h["alvr"].append({"name": name, "state": c.get("connection_state"), "trusted": c.get("trusted")})
+    add_streaming_headsets(headsets, clients)
     data = {"adb": ADB is not None, "headsets": headsets, "alvr": clients}
     with _cache_lock:
         _cache.update(time=time.time(), data=data)
@@ -1244,6 +1282,8 @@ def flat_loft_env() -> dict:
 
 
 TABLET_APP_AUDIO = HeadsetAudioRouter()
+TABLET_VOICE_PREFS = VoicePreferences(CONFIG_PATH.parent / "voice-mutes.json",
+    Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "xr-loft-voice-positions.json")
 
 
 def link_voice_chat():
@@ -1258,7 +1298,8 @@ def link_voice_chat():
 TABLET_CLIENTS = TabletClients(
     lambda: runtime_root() / "build/intel-xr-loft/intel_xr_loft_flat" if runtime_root() else None,
     flat_loft_env, lambda: runtime_root() / "logs" if runtime_root() else None,
-    voice_link_fn=link_voice_chat if runtime_root() else None)
+    voice_link_fn=link_voice_chat if runtime_root() else None,
+    player_fn=TABLET_VOICE_PREFS.players, mute_fn=TABLET_VOICE_PREFS.set_muted)
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "XRControlPanel/1"

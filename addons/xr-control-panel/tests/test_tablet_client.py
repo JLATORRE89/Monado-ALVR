@@ -209,6 +209,18 @@ class RelayTests(unittest.TestCase):
         a.close()
         b.close()
 
+    def test_mute_uses_socket_identity_and_known_players(self):
+        calls=[]
+        self.s.TABLET_CLIENTS.player_fn=lambda cid:[{"id":"primary","muted":False}]
+        self.s.TABLET_CLIENTS.mute_fn=lambda *args:calls.append(args)
+        sock,f,_=self.open_ws();read_frame(f)
+        sock.sendall(client_frame(1,json.dumps({"t":"mute_player","id":"primary","muted":True,"listener":"someone-else"}).encode()))
+        sock.sendall(client_frame(1,json.dumps({"t":"mute_player","id":"unknown","muted":True}).encode()))
+        deadline=time.time()+2
+        while time.time()<deadline and not calls: time.sleep(.01)
+        self.assertEqual(calls,[("pc-viewer","primary",True)])
+        sock.close()
+
     def test_voice_bridge(self):
         # Fake pw-cat: playback appends what it receives to a file, record emits a numbered chunk every 40 ms.
         d = Path(self.tmp.name)

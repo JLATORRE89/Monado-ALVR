@@ -203,3 +203,11 @@ input[type=file]::file-selector-button { min-height: 36px; margin-right: 12px; p
 .update-item { padding: 16px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; min-width: 0; }
 .update-item .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .update-item .btn { white-space: normal; max-width: 100%; }
+
+/* Capture details and controls must not compete for a single narrow row. */
+.media .meta { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 12px; padding: 14px; }
+.media .meta > .check { white-space: nowrap; }
+.media .meta > span:not(.actions) { min-width: 0; overflow-wrap: anywhere; }
+.media .meta .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; align-items: center; }
+.media .meta .actions > * { flex: 0 0 auto; white-space: nowrap; min-height: 36px; }
+#captureExportForm { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 16px 0; }

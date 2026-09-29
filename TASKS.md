@@ -1,3 +1,15 @@
+> **Panel visibility/layout + individual mute (Codex, 2026-09-28):** Headsets merges
+> trusted ALVR inventory with ADB devices, preserves offline Quest cards and deduplicates
+> aliases. ADB-only actions remain unavailable until debugging reconnects. User cannot
+> replug USB now. Live browser verified Quest2/1WMHHA42R81461 card (Disconnected).
+> Capture footer now selection/details + wrapping action row; all actions visible at
+> 1456/800/390 px, no horizontal overflow. Tablet Menu→People has per-listener mute,
+> persisted config voice-mutes.json, enforced by proximity router. 20 tablet tests,
+> 5 headset discovery tests, JS lifecycle/sound tests and mocked 412px People menu pass.
+> User confirms enabling Sound works. Last page reload requires a fresh playback gesture;
+> tablet microphone remains explicit opt-in. Last Quest encoder3Mbps; quality tuning
+> awaits connected awake headset. No bitrate settings changed.
+
 > **Tablet listening + proximity voice (Codex, 2026-09-28):** Separate Sound/Mic;
 > automatic listening after browser gesture, mic opt-in; microphone off/denied does
 > not disable listening. scripts/xr-voice.py limits voice to 3m entry/3.5m exit using

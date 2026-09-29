@@ -38,6 +38,25 @@ class RoutingTests(unittest.TestCase):
   self.assertEqual(desired_links(g,{'tablet-a'})[0],{(51,41),(52,41)})
   self.assertEqual(desired_links(g,set())[0],set())
   self.assertEqual(desired_links(graph(),{'tablet-a'})[0],set())
+ def test_muting_is_per_listener_and_survives_distance(self):
+  g=graph();mutes={'tablet-a':['primary']}
+  near={'primary':(0,0),'tablet-a':(1,0)}
+  self.assertEqual(prox.voice_links(g,near,mutes=mutes)[0],{(31,21)})
+  self.assertEqual(prox.voice_links(g,{'primary':(0,0),'tablet-a':(8,0)},mutes=mutes)[0],set())
+  self.assertEqual(prox.voice_links(g,near,mutes=mutes)[0],{(31,21)})
+ def test_mute_preferences_persist(self):
+  import tempfile,json,time
+  from tablet_audio import VoicePreferences
+  with tempfile.TemporaryDirectory() as tmp:
+   path=Path(tmp);positions=path/'positions.json'
+   positions.write_text(json.dumps({'time':time.monotonic(),'positions':{'primary':[0,0],'tablet-a':[1,0]}}))
+   prefs=VoicePreferences(path/'mutes.json',positions)
+   prefs.set_muted('tablet-a','primary',True)
+   self.assertTrue(VoicePreferences(path/'mutes.json',positions).players('tablet-a')[0]['muted'])
+   self.assertFalse(prefs.players('primary')[0]['muted'])
+   self.assertEqual((path/'mutes.json').stat().st_mode & 0o777,0o600)
+   prefs.set_muted('tablet-a','primary',False)
+   self.assertFalse(prefs.players('tablet-a')[0]['muted'])
  def test_presence_validation(self):
   def pkt(x=1):return prox.PACKET.pack(0x3154464c,b'primary',x,1.66,2,0,0,0,1,0)
   self.assertEqual(prox.read_position(pkt()),('primary',(1,2)))

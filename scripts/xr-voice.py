@@ -62,7 +62,8 @@ def positions(directory, duration=0.18):
     return result
 
 
-def voice_links(graph, pos, radius=RADIUS):
+def voice_links(graph, pos, radius=RADIUS, mutes=None):
+    mutes = mutes or {}
     nodes, ports, existing = {}, {}, set()
     for obj in graph:
         info = obj.get('info') or {}; props = info.get('props') or {}
@@ -78,6 +79,7 @@ def voice_links(graph, pos, radius=RADIUS):
     for a, speaker in mics.items():
         for b, listener in ears.items():
             if speaker == listener or speaker not in pos or listener not in pos: continue
+            if speaker in mutes.get(listener, []): continue
             threshold = radius + (HYSTERESIS if (a,b) in managed else 0)
             if math.dist(pos[speaker],pos[listener]) > threshold: continue
             ac,bc = ports[a][2],ports[b][2]
@@ -88,7 +90,15 @@ def voice_links(graph, pos, radius=RADIUS):
 def sync(mode, directory):
     graph = json.JSONDecoder().raw_decode(subprocess.check_output(['pw-dump'],text=True,timeout=5).lstrip())[0]
     pos = positions(directory) if mode == 'link' else {}
-    wanted, current = voice_links(graph, pos)
+    runtime=Path(os.environ.get('XDG_RUNTIME_DIR',f'/run/user/{os.getuid()}'))
+    if mode == 'link':
+        fd,filename=tempfile.mkstemp(dir=runtime,prefix='.voice-positions-')
+        with os.fdopen(fd,'w') as f: json.dump({'time':time.monotonic(),'positions':pos},f)
+        os.replace(filename,runtime/'xr-loft-voice-positions.json')
+    config=Path(os.environ.get('XR_PANEL_CONFIG',Path.home()/'.config/xr-control-panel/config.json'))
+    try: mutes=json.loads(config.with_name('voice-mutes.json').read_text())
+    except (OSError,ValueError): mutes={}
+    wanted, current = voice_links(graph, pos, mutes=mutes)
     if mode == 'status':
         print(f'{len(current)} proximity voice channel links; enter {RADIUS:g}m / leave {RADIUS+HYSTERESIS:g}m')
         return

@@ -249,7 +249,8 @@ class FlatSession:
 
 
 class TabletClients:
-    def __init__(self, binary_fn, env_fn, log_dir_fn, voice_link_fn=None, voice_command_fn=pw_cat_command):
+    def __init__(self, binary_fn, env_fn, log_dir_fn, voice_link_fn=None, voice_command_fn=pw_cat_command, player_fn=None, mute_fn=None):
+        self.player_fn, self.mute_fn = player_fn, mute_fn
         self.binary_fn, self.env_fn, self.log_dir_fn = binary_fn, env_fn, log_dir_fn
         self.voice_link_fn, self.voice_command_fn = voice_link_fn, voice_command_fn
         self.lock = threading.Lock()
@@ -371,6 +372,12 @@ class TabletClients:
                         continue
                     if not isinstance(req, dict):
                         continue
+                    if req.get("t") == "mute_player":
+                        target, muted = req.get("id"), req.get("muted")
+                        if s.viewer is me and self.player_fn and self.mute_fn and isinstance(muted, bool):
+                            if target in {p["id"] for p in self.player_fn(cid)}:
+                                self.mute_fn(cid, target, muted)
+                        continue
                     if req.get("t") == "voice":
                         set_voice(req.get("on") is True)
                         continue
@@ -409,7 +416,9 @@ class TabletClients:
                 if state is not state_sent:
                     state_sent = state
                     if state:  # nothing until the renderer has reported
-                        send(0x1, json.dumps({"t": "state", **state}).encode())
+                        update = {"t": "state", **state}
+                        if self.player_fn: update["players"] = self.player_fn(cid)
+                        send(0x1, json.dumps(update).encode())
                 if seq != sent_seq and frame and sent - acked[0] < MAX_IN_FLIGHT:
                     sent_seq, sent = seq, sent + 1
                     send(0x2, b"V" + frame)

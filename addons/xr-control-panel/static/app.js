@@ -109,8 +109,8 @@ function actionButton(label, serial, action, cls = "btn", extra = {}) {
   }) }, label);
 }
 function headsetCard(h) {
-  const badges = [el("span", { class: "badge accent" }, h.transport === "wifi" ? "ADB Wi‑Fi" : h.transport === "usb" ? "USB" : "ADB")];
-  if (h.state !== "device") badges.push(el("span", { class: "badge warn" }, h.state));
+  const badges = [el("span", { class: "badge accent" }, h.streaming_only ? (h.alvr?.[0]?.state || "Known headset") : h.transport === "wifi" ? "ADB Wi‑Fi" : h.transport === "usb" ? "USB" : "ADB")];
+  if (h.state !== "device" && !h.streaming_only) badges.push(el("span", { class: "badge warn" }, h.state));
   else if (h.is_tablet) badges.push(el("span", { class: "badge accent" }, "Tablet"));
   else if (!h.is_quest) badges.push(el("span", { class: "badge" }, "Not a Quest"));
   if (h.recording) badges.push(el("span", { class: "badge bad" }, "● Recording"));
@@ -120,6 +120,15 @@ function headsetCard(h) {
       el("div", {}, el("p", { class: "headset-title" }, h.model || "Android device"), el("div", { class: "serial" }, h.serial)),
       el("div", { class: "badges" }, badges)));
 
+  if (h.streaming_only) {
+    card.append(el("div", { class: "device-details" },
+      el("div", { class: "device-status" }, fact("ALVR", (h.alvr || []).map(a => a.state).join(", ")),
+        fact("Device controls", "Not connected")),
+      el("div", { class: "device-network" }, fact("Wi-Fi IPv4", h.ip || "—"),
+        fact("Wi-Fi IPv6", (h.ipv6 || []).join("\n") || "—"))));
+    card.append(el("p", { class: "muted" }, "Known to ALVR. Reconnect USB and allow debugging to restore screenshots, app management and device controls."));
+    return card;
+  }
   if (h.state !== "device") {
     card.append(el("p", { class: "muted" }, h.state === "unauthorized"
       ? "Unlock the device and allow USB debugging for this computer." : `ADB state: ${h.state}`));
@@ -168,7 +177,7 @@ async function loadHeadsets(force = false) {
       const list = $(id), devices = data.headsets.filter(h => Boolean(h.is_tablet) === tablet);
       // Keep expanded controls stable during automatic refresh and while an action is running.
       if (list.querySelector("details[open]")) continue;
-      if (!data.adb) list.replaceChildren(el("div", { class: "card empty" }, "Android device connection is unavailable."));
+      if (!data.adb && !devices.length) list.replaceChildren(el("div", { class: "card empty" }, "Android device connection is unavailable."));
       else if (!devices.length) list.replaceChildren(el("div", { class: "card empty" }, tablet
         ? "No tablets connected. Connect your Tab A9+ by USB and allow debugging."
         : "No headsets connected. Connect a Quest by USB or authorized Wi-Fi debugging."));
@@ -209,7 +218,7 @@ async function loadCaptures() {
           el("label", { class: "check" }, el("input", { type: "checkbox", name: "capturePick", dataset: { headset: c.headset, file: c.file }, onchange: updateCaptureSelection }), "Select for export"),
           el("span", {}, el("strong", {}, knownHeadsets.get(c.headset) || c.headset), el("br"), when),
           el("span", { class: "actions" },
-            el("a", { href: url + "?download=1", download: c.file }, "Export file"),
+            el("a", { class: "btn small", href: url + "?download=1", download: c.file }, "Export file"),
             c.type === "video" && !c.file.includes("-headset") ? el("button", { class: "btn small",
               onclick: e => run(e.currentTarget, () => api("/api/captures/transcode", { method: "POST",
                 json: { headset: c.headset, file: c.file, where: "auto" } })) }, "Prepare for headset") : null,

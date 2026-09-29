@@ -56,6 +56,7 @@
   .tile .play { position: absolute; inset: 0; display: grid; place-items: center; font-size: 34px; color: var(--muted); }
   .tile .cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 4px 8px; font-size: 12px; text-align: left;
                background: linear-gradient(transparent, rgba(0, 0, 0, .75)); color: var(--text); }
+  .tile.person { aspect-ratio: auto; min-height: 80px; padding: 16px; text-align: left; white-space: normal; }
   .tile.focus, .tile:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
   .menu-empty { color: var(--muted); }
   .viewer { z-index: 11; background: #000; padding: 0; }
@@ -89,6 +90,7 @@
     <h1>Loft</h1>
     <button class="tab" data-kind="image" aria-selected="true">Pictures</button>
     <button class="tab" data-kind="video" aria-selected="false">Videos</button>
+    <button class="tab" data-kind="people" aria-selected="false">People</button>
     <span class="spacer"></span>
     <button id="menu-close">Close</button>
   </div>

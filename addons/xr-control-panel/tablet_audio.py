@@ -6,6 +6,12 @@ hearing the tablet's own microphone back through the headset mix. Native Quest
 apps that never send audio to this PC are outside this route.
 """
 import json
+import os
+import re
+import math
+import time
+import tempfile
+from pathlib import Path
 import subprocess
 import threading
 
@@ -65,3 +71,42 @@ class HeadsetAudioRouter:
                 result = self.run(['pw-link', str(src), str(dst)], capture_output=True, timeout=3)
                 if not result.returncode:
                     self.owned.add((src, dst))
+
+class VoicePreferences:
+    """Per-listener mute choices. The listener identity always comes from the authenticated socket."""
+    def __init__(self, path, positions_path):
+        self.path, self.positions_path = Path(path), Path(positions_path)
+        self.lock = threading.Lock()
+
+    def read(self):
+        try: return json.loads(self.path.read_text())
+        except (OSError, ValueError): return {}
+
+    def set_muted(self, listener, speaker, muted):
+        if listener == speaker or not all(re.fullmatch(r'[a-z0-9_-]{1,31}', x) for x in (listener,speaker)):
+            return
+        with self.lock:
+            data=self.read(); values=set(data.get(listener,[]))
+            if muted: values.add(speaker)
+            else: values.discard(speaker)
+            data[listener]=sorted(values)
+            self.path.parent.mkdir(parents=True,exist_ok=True)
+            fd,name=tempfile.mkstemp(dir=self.path.parent,prefix='.voice-mutes-')
+            try:
+                with os.fdopen(fd,'w') as f: json.dump(data,f)
+                os.replace(name,self.path)
+            finally:
+                Path(name).unlink(missing_ok=True)
+
+    def players(self, listener):
+        muted=set(self.read().get(listener,[]))
+        try:
+            state=json.loads(self.positions_path.read_text())
+            pos=state['positions'] if time.monotonic()-state['time'] < 2 else {}
+        except (OSError,ValueError,KeyError): pos={}
+        result=[]
+        for cid in sorted((set(pos)|muted)-{listener}):
+            distance=math.dist(pos[listener],pos[cid]) if listener in pos and cid in pos else None
+            name='Quest user' if cid=='primary' else 'Tablet '+cid[7:] if cid.startswith('tablet-') else cid
+            result.append({'id':cid,'name':name,'distance':round(distance,1) if distance is not None else None,'muted':cid in muted})
+        return result

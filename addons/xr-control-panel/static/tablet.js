@@ -132,6 +132,12 @@ function draw(bmp) {
 
 function showState(st) {
   lastState = st;
+  if (menuOpen() && kind === "people") {
+    const saved = focusIdx;
+    showKind("people");
+    focusIdx = Math.min(saved, Math.max(0, listed().length - 1));
+    focusTile();
+  }
   const n = st.peers || 0;
   const others = n === 0 ? "Nobody else here yet" : n === 1 ? "1 other person here" : `${n} other people here`;
   setStatus(st.seated ? `Seated: ${st.seated} · ${others}` : `In the Loft · ${others}`);
@@ -238,7 +244,7 @@ function closeMenu() {
   closeViewer();
   menu.hidden = true;
 }
-function listed() { return items.filter((c) => c.type === kind); }
+function listed() { return kind === "people" ? (lastState?.players || []) : items.filter((c) => c.type === kind); }
 function mediaUrl(c) { return `/captures/${encodeURIComponent(c.headset)}/${encodeURIComponent(c.file)}`; }
 function showKind(k) {
   kind = k;
@@ -247,6 +253,13 @@ function showKind(k) {
   grid.replaceChildren(...list.map((c, i) => {
     const b = document.createElement("button");
     b.className = "tile";
+    if (k === "people") {
+      b.classList.add("person");
+      b.textContent = `${c.name} · ${c.distance == null ? "Away" : c.distance + " m"} · ${c.muted ? "Unmute" : "Mute"}`;
+      b.setAttribute("aria-pressed", String(c.muted));
+      b.addEventListener("click", () => openViewer(i));
+      return b;
+    }
     b.addEventListener("click", () => openViewer(i));
     if (c.type === "image") {
       const img = document.createElement("img");
@@ -267,7 +280,7 @@ function showKind(k) {
     return b;
   }));
   $("#menu-empty").hidden = list.length > 0;
-  $("#menu-empty").textContent = k === "image" ? "No pictures yet. Screenshots and uploads from the panel appear here."
+  $("#menu-empty").textContent = k === "people" ? "No other players here yet. Muting affects only what you hear." : k === "image" ? "No pictures yet. Screenshots and uploads from the panel appear here."
                                                : "No videos yet. Recordings and uploads from the panel appear here.";
   focusIdx = 0;
   focusTile();
@@ -283,6 +296,10 @@ function gridColumns() {
 function openViewer(i) {
   const list = listed();
   if (!list[i]) return;
+  if (kind === "people") {
+    send({ t: "mute_player", id: list[i].id, muted: !list[i].muted });
+    return;
+  }
   viewing = i;
   const c = list[i];
   viewer.hidden = false;
@@ -317,7 +334,10 @@ function menuInput(action) {
   else if (action === "up") focusIdx = Math.max(0, focusIdx - cols);
   else if (action === "down") focusIdx = Math.min(n - 1, focusIdx + cols);
   else if (action === "select") return openViewer(focusIdx);
-  else if (action === "prevTab" || action === "nextTab") return showKind(kind === "image" ? "video" : "image");
+  else if (action === "prevTab" || action === "nextTab") {
+    const tabs = ["image", "video", "people"];
+    return showKind(tabs[(tabs.indexOf(kind) + (action === "nextTab" ? 1 : 2)) % 3]);
+  }
   else if (action === "back" || action === "menu") return closeMenu();
   focusIdx = Math.max(0, focusIdx);
   focusTile();
@@ -461,7 +481,7 @@ voiceBtn.addEventListener("click", () => {
 // ---------------------------------------------------------------- game controller (Xbox layout)
 // Standard mapping: left stick walks, right stick looks, A selects the centre dot (drink / sit /
 // greet), B stands up, Y opens the menu, X mutes voice. In the menu: D-pad or left stick moves,
-// A opens, B goes back, LB/RB switch Pictures/Videos. Chrome only exposes controllers to secure pages.
+// A opens, B goes back, LB/RB switch Pictures/Videos/People. Chrome only exposes controllers to secure pages.
 const padPrev = [];
 let navHeld = null, navNext = 0;
 function deadzone(v) {
