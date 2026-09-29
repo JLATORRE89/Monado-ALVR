@@ -24,6 +24,7 @@ const PAD_DEADZONE = 0.18;
 const VOICE_RATE = 24000, VOICE_CHUNK = 960; // 40 ms of mono, as tablet_client.py
 
 let ws = null, retry = 0, frameRect = null, lastState = null, padIndex = null, voiceAvailable = false;
+let reconnectTimer = null;
 let look = { dx: 0, dy: 0 }, move = { f: 0, r: 0 }, moveSentZero = true;
 
 function setStatus(text, error = false) {
@@ -37,14 +38,18 @@ function send(obj) {
 
 // ---------------------------------------------------------------- connection and frames
 function connect() {
+  if (document.hidden || (ws && ws.readyState < WebSocket.CLOSING)) return;
+  clearTimeout(reconnectTimer);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = Math.round(window.innerWidth * dpr), h = Math.round(window.innerHeight * dpr);
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   ws = new WebSocket(`${proto}//${location.host}/api/tablet/ws?w=${w}&h=${h}`);
+  const socket = ws;
   ws.binaryType = "arraybuffer";
   setStatus("Connecting…");
   ws.onopen = () => { retry = 0; };
   ws.onmessage = async (ev) => {
+    if (ws !== socket) return;
     if (typeof ev.data === "string") {
       const msg = JSON.parse(ev.data);
       if (msg.t === "hello") {
@@ -61,19 +66,44 @@ function connect() {
     if (kind === 0x41) { playVoice(ev.data); return; } // "A"
     try {
       const bmp = await createImageBitmap(new Blob([new Uint8Array(ev.data, 1)], { type: "image/jpeg" }));
-      draw(bmp);
+      if (ws === socket && !document.hidden) draw(bmp);
       bmp.close();
     } catch (e) { /* a damaged frame: skip it */ }
-    send({ t: "ack" });
+    if (ws === socket) send({ t: "ack" });
   };
-  ws.onclose = () => {
+  ws.onclose = (ev) => {
+    if (ws !== socket) return;
     ws = null;
     voiceState(false, true);
+    if (ev.code === 4001) {
+      setStatus("Loft is open in another tab. Return to this tab to resume.");
+      return;
+    }
+    if (document.hidden) return;
     retry = Math.min(retry + 1, 6);
     setStatus(retry > 2 ? "Disconnected — retrying…" : "Reconnecting…", retry > 2);
-    setTimeout(connect, 400 * retry);
+    reconnectTimer = setTimeout(connect, 400 * retry);
   };
 }
+
+// A device has one Loft user. Hidden tabs must not reclaim its renderer or keep
+// sending held controller input. Returning to the tab resumes the same user.
+document.addEventListener("visibilitychange", () => {
+  clearTimeout(reconnectTimer);
+  if (document.hidden) {
+    keys.clear();
+    drags.clear();
+    move = { f: 0, r: 0 };
+    look = { dx: 0, dy: 0 };
+    stickId = null;
+    knob.style.transform = "";
+    send({ t: "move", f: 0, r: 0 });
+    const old = ws;
+    ws = null;
+    if (old) old.close();
+    voiceState(false, true);
+  } else connect();
+});
 
 function draw(bmp) {
   const dpr = window.devicePixelRatio || 1;
@@ -452,6 +482,7 @@ window.addEventListener("gamepaddisconnected", (e) => {
 // ---------------------------------------------------------------- send loop (~30 Hz)
 let lastTick = performance.now();
 function tick(now) {
+  if (document.hidden) { lastTick = now; return; }
   const dt = Math.min((now - lastTick) / 1000, 0.1);
   lastTick = now;
   const pad = pollPad(dt, now);

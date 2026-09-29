@@ -1,3 +1,14 @@
+> **Codex tablet pause investigation (2026-09-28):** User confirms real Bluetooth Xbox
+> controller walking/looking works on SM-X210, reports pauses. Fixed hidden-tab session
+> contention: inactive page releases connection/input, resumes when visible; explicit
+> takeover close 4001 prevents reconnect fights; stale close/decode callbacks ignored,
+> replaced viewers cannot send movement. 12 isolated tablet tests + Node lifecycle
+> regression passed. Panel-only deployment/restart, both tablet tabs reloaded.
+> Before 10s sample:300frames/max55.4ms/no reconnects (did NOT reproduce reported pause).
+> After 20s:599frames/max53.7ms/p95 43.7ms/no reconnects/no >200ms gaps, hidden tab disconnected.
+> User acceptance pending; do not claim all pauses fixed. Desktop browser follow-up:
+> Firefox/Ubuntu and Chrome/Windows11 acceptance plus independent remote-PC pairing.
+
 > **Tablet Loft client (Claude, 2026-09-28):** SM-X210 joins the Loft as its own user. Loft 2816a58
 > intel_xr_loft_flat (flat renderer in presence) + panel 8e3fafa7f tablet_client.py, /tablet page with touch
 > and Xbox controller (Gamepad API; needs a secure page: USB 127.0.0.1 or HTTPS), "Join the Loft" on the tablet

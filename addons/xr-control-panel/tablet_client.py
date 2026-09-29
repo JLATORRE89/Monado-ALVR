@@ -381,7 +381,9 @@ class TabletClients:
                         continue
                     line = command_for(req)
                     if line:
-                        s.send(line)
+                        with s.cond:
+                            if s.viewer is me:
+                                s.send(line)
             except (OSError, ValueError, struct.error):
                 pass
             closed.set()
@@ -413,7 +415,9 @@ class TabletClients:
                     send(0x2, b"V" + frame)
             if not s.alive():
                 send(0x1, json.dumps({"t": "error", "message": "The tablet renderer stopped"}).encode())
-            send(0x8, b"")
+            # An intentional takeover is not a network fault. Tell the old page
+            # not to reconnect and steal the session back from the new one.
+            send(0x8, struct.pack(">H", 4001) + b"Opened in another tab" if s.viewer is not me else b"")
         except OSError:
             pass
         finally:

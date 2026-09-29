@@ -192,6 +192,23 @@ class RelayTests(unittest.TestCase):
         a.close()
         b.close()
 
+    def test_same_size_takeover_has_non_retry_close_code(self):
+        a, fa, _ = self.open_ws()
+        read_frame(fa)
+        b, fb, _ = self.open_ws()
+        read_frame(fb)
+        deadline = time.time() + 3
+        code = None
+        while time.time() < deadline:
+            op, data = read_frame(fa)
+            if op == 8:
+                code = struct.unpack(">H", data[:2])[0]
+                break
+        self.assertEqual(code, 4001)
+        self.assertTrue(self.s.TABLET_CLIENTS.status()[0]["viewer"])
+        a.close()
+        b.close()
+
     def test_voice_bridge(self):
         # Fake pw-cat: playback appends what it receives to a file, record emits a numbered chunk every 40 ms.
         d = Path(self.tmp.name)
