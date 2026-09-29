@@ -1,3 +1,10 @@
+> **Yaw correction (Codex, September 29):** Monado head tracking now uses ALVR's measured,
+> capped display-time prediction, matching its OpenVR HMD path; returned velocities are zero
+> to prevent double extrapolation. No FOV/size/bitrate changes. Two prediction regression tests,
+> server/runtime builds and 17-step companion reconstruction passed. Quest startup decoded
+> frames; sustained worn-headset yaw acceptance remains pending. See docs/yaw-prediction-2026-09-29.md.
+> Concurrent panel/server.py edits are preserved and excluded from this task's commits.
+
 > **Streaming regression (Codex, September 28 late evening):** fixed misleading control health and
 > global ADB shutdown in ALVR WiredConnection teardown. Added timestamped stale telemetry,
 > bounded targeted reconnect (never for unauthorized/authorized-but-slow devices), build identity,

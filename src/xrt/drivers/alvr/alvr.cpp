@@ -355,7 +355,9 @@ alvr_hmd_create(void)
 		q.w *= inv_norm;
 
 		int64_t xrt_now = os_monotonic_get_ns();
-		m_relation_history_push(hmd->relation_hist, &xrel, xrt_now - 60);
+		// ALVR's HMD C API has already predicted to measured photon time and
+		// zeros velocities, matching its OpenVR HMD path. Do not predict twice.
+		m_relation_history_push(hmd->relation_hist, &xrel, xrt_now);
 
 		static bool intel_xr_valid_tracking_logged = false;
 		if (!intel_xr_valid_tracking_logged) {

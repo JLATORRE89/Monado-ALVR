@@ -27,6 +27,7 @@ HELPERS=(
   apply-alvr-render-vbv.py                 # 14 rate-control buffer of INTEL_XR_VBV_FRAMES (sharper keyframes)
   apply-alvr-render-reopen-drain.py        # 15 drain before encoder re-open; rate control at refresh rate
   apply-alvr-render-boundary-capture.py    # 16 paired preencode / encoded IDR diagnostics
+  apply-alvr-render-head-prediction.py     # 17 measured display-time head prediction
 )
 
 for helper in "${HELPERS[@]}"; do
