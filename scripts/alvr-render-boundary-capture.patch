@@ -1,0 +1,78 @@
+diff --git a/src/EncodePipelineVAAPI.cpp b/src/EncodePipelineVAAPI.cpp
+index a2485c4..ff7aab5 100644
+--- a/src/EncodePipelineVAAPI.cpp
++++ b/src/EncodePipelineVAAPI.cpp
+@@ -7,6 +7,8 @@
+ #include <chrono>
+ #include <cmath>
+ #include <iostream>
++#include <filesystem>
++#include <fstream>
+ 
+ extern "C" {
+ #include "alvr_binding.h"
+@@ -433,6 +435,35 @@ void alvr::EncodePipelineVAAPI::PushFrame(uint64_t targetTimestampNs, bool idr)
+     throw alvr::AvException("av_buffersink_get_frame failed", err);
+   }
+ 
++  // Opt-in boundary capture, exactly one IDR; no readback during normal streaming.
++  // NV12 after composition/packing and before compression, paired by encoder pts.
++  if (idr && encoder_frame->format == AV_PIX_FMT_VAAPI) {
++    const char *runtime = getenv("XDG_RUNTIME_DIR");
++    std::string dir = runtime ? runtime : "/tmp";
++    std::error_code ec;
++    if (std::filesystem::remove(dir + "/intel-xr-boundary-request", ec)) {
++      AVFrame *cpu = av_frame_alloc();
++      int result = cpu ? av_hwframe_transfer_data(cpu, encoder_frame, 0) : AVERROR(ENOMEM);
++      if (result >= 0 && cpu->format == AV_PIX_FMT_NV12) {
++        std::ofstream raw(dir + "/intel-xr-boundary.nv12", std::ios::binary | std::ios::trunc);
++        for (int y = 0; y < cpu->height; ++y)
++          raw.write(reinterpret_cast<char *>(cpu->data[0] + y * cpu->linesize[0]), cpu->width);
++        for (int y = 0; y < (cpu->height + 1) / 2; ++y)
++          raw.write(reinterpret_cast<char *>(cpu->data[1] + y * cpu->linesize[1]), cpu->width);
++        raw.close();
++        if (raw) {
++          std::ofstream meta(dir + "/intel-xr-boundary.txt", std::ios::trunc);
++          meta << targetTimestampNs << " " << cpu->width << " " << cpu->height << "\n";
++          std::cerr << "[INTEL-XR-BOUNDARY] preencode pts=" << targetTimestampNs
++                    << " packed=" << cpu->width << "x" << cpu->height << " format=nv12" << std::endl;
++        }
++      } else {
++        std::cerr << "[INTEL-XR-BOUNDARY] readback failed result=" << result << std::endl;
++      }
++      av_frame_free(&cpu);
++    }
++  }
++
+   encoder_frame->pict_type = idr ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
+   encoder_frame->pts = targetTimestampNs;
+ 
+diff --git a/src/Encoder.cpp b/src/Encoder.cpp
+index 40b33bc..e60f614 100644
+--- a/src/Encoder.cpp
++++ b/src/Encoder.cpp
+@@ -438,6 +438,24 @@ void Encoder::present(u32 idx, u64 timelineVal, ViewsInfo const& views)
+         return;
+     }
+ 
++    // Pair the optional raw readback with the exact compressed frame and eye poses.
++    if (framePacket.isIDR) {
++        std::string dir = std::getenv("XDG_RUNTIME_DIR") ? std::getenv("XDG_RUNTIME_DIR") : "/tmp";
++        std::ifstream meta(dir + "/intel-xr-boundary.txt");
++        u64 pts = 0; unsigned width = 0, height = 0;
++        if (meta >> pts >> width >> height && pts == framePacket.pts) {
++            std::ofstream packet(dir + "/intel-xr-boundary.encoded", std::ios::binary | std::ios::trunc);
++            packet.write(reinterpret_cast<char const *>(framePacket.data), framePacket.size);
++            std::ofstream pose(dir + "/intel-xr-boundary-views.txt", std::ios::trunc);
++            for (auto const &v : {views.left, views.right}) {
++                pose << v.pose.orientation.x << " " << v.pose.orientation.y << " "
++                     << v.pose.orientation.z << " " << v.pose.orientation.w << " fov "
++                     << v.fov.left << " " << v.fov.right << " " << v.fov.up << " " << v.fov.down << "\n";
++            }
++            std::cerr << "[INTEL-XR-BOUNDARY] encoded pts=" << pts << " bytes=" << framePacket.size << std::endl;
++        }
++    }
++
+     static u64 intelXrEncodedCount = 0;
+     static u64 intelXrEncodedIdrCount = 0;
+     ++intelXrEncodedCount;

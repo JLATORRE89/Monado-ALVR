@@ -89,6 +89,12 @@ async function loadStatus() {
     } else {
       pills.push(el("span", { class: "pill" }, "Runtime: not configured"));
     }
+    if (s.runtime?.build) {
+      const b = s.runtime.build;
+      pills.push(el("span", { class: `pill ${b.running_binary_matches ? "" : "bad"}`, title: b.binary_sha256 || "" },
+        `Runtime build: ${b.commit?.slice(0,12) || "unknown"}${b.dirty ? " + local changes" : ""} (${b.running_binary_matches ? "verified" : "unverified"})`));
+    }
+    if (s.build) pills.push(el("span", { class: "pill", title: s.build.source_sha256 }, `Panel build: ${(s.build.commit || s.build.source_sha256).slice(0, 12)}${s.build.dirty ? " + local changes" : ""}`));
     $("#pills").replaceChildren(...pills);
     $("#runtime-missing").hidden = runtimeInstalled;
     for (const c of $$("[data-runtime]")) c.hidden = !runtimeInstalled;
@@ -109,11 +115,12 @@ function actionButton(label, serial, action, cls = "btn", extra = {}) {
   }) }, label);
 }
 function headsetCard(h) {
-  const badges = [el("span", { class: "badge accent" }, h.streaming_only ? (h.alvr?.[0]?.state || "Known headset") : h.transport === "wifi" ? "ADB Wi‑Fi" : h.transport === "usb" ? "USB" : "ADB")];
+  const badges = [el("span", { class: "badge accent" }, h.streaming_only ? "Known headset" : h.transport === "wifi" ? "ADB Wi‑Fi" : h.transport === "usb" ? "USB" : "ADB")];
   if (h.state !== "device" && !h.streaming_only) badges.push(el("span", { class: "badge warn" }, h.state));
   else if (h.is_tablet) badges.push(el("span", { class: "badge accent" }, "Tablet"));
   else if (h.is_quest) badges.push(el("span", { class: "badge accent" }, "Headset"));
   else badges.push(el("span", { class: "badge" }, "Android device"));
+  if (h.health) badges.push(el("span", { class: `badge ${h.health.control === "healthy" ? "ok" : "warn"}` }, h.health.summary));
   if (h.recording) badges.push(el("span", { class: "badge bad" }, "● Recording"));
 
   const card = el("article", { class: "card headset-card" },
@@ -121,22 +128,26 @@ function headsetCard(h) {
       el("div", {}, el("p", { class: "headset-title" }, h.model || "Android device"), el("div", { class: "serial" }, h.serial)),
       el("div", { class: "badges" }, badges)));
 
-  const managed = h.state === "device";
+  const managed = h.state === "device" && (!h.health || h.health.control === "healthy");
   const unavailable = h.state === "unauthorized"
     ? "Unlock the device and allow USB debugging for this computer."
-    : "Reconnect USB and allow debugging to restore device controls.";
+    : "Device control unavailable. Automatic reconnect is retrying; if it stays unavailable, reconnect USB and check the headset debugging prompt.";
   const alvr = (h.alvr || []).map(a => `${a.name} (${a.state || "?"})`).join(", ") || "—";
   card.append(el("div", { class: "device-details" },
     el("div", { class: "device-status" },
-      fact("Battery", h.battery == null ? "—" : `${h.battery}%${h.charging ? " ⚡" : ""}`),
-      fact("Display", h.awake == null ? "—" : h.awake ? "Awake" : "Asleep"),
-      fact("Client", h.is_tablet ? "Browser client" : !managed ? "—" : h.client_installed ? (h.client_running ? "Running" : "Installed") : "Not installed")),
+      fact("Battery", h.battery == null ? "Unavailable" : `${h.battery}%${h.charging ? " ⚡" : ""}`),
+      fact("Display", h.awake == null ? "Unavailable" : h.awake ? "Awake" : "Asleep"),
+      fact("Client", h.is_tablet ? "Browser client" : h.client_installed == null ? "Unavailable" : h.client_installed ? (h.client_running ? "Running" : "Installed") : "Not installed")),
     el("div", { class: "device-network" },
       fact("Wi-Fi IPv4", h.ip || "—"),
       fact("Wi-Fi IPv6", (h.ipv6 || []).join("\n") || "—"),
       fact("Loft connection", h.is_tablet ? "Browser (touch or controller)" : alvr))));
   card.append(el("p", { class: "device-connection muted" }, managed
     ? "Device controls connected." : unavailable));
+  if (h.health) card.append(el("p", { class: "device-connection muted" }, `Video: ${h.health.video}. XR session: ${h.health.xr_session}. Control: ${h.health.control}.`));
+  if (h.telemetry && h.telemetry.state !== "fresh") card.append(el("p", { class: "device-connection muted" }, h.telemetry.observed_at
+    ? `Stale telemetry — last read ${new Date(h.telemetry.observed_at * 1000).toLocaleString()}.`
+    : "Telemetry unavailable — no successful reading in this server session."));
   if (h.is_quest || h.is_tablet) card.append(assistantControls(h));
   const deviceAction = (label, action, cls = "btn", extra = {}) => actionButton(label, h.serial, action, cls,
     { ...extra, disabled: !managed || !!extra.disabled, title: managed ? "" : unavailable });

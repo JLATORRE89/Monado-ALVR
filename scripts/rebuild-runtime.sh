@@ -22,4 +22,6 @@ echo "server core sha256 $target"
 echo "=== Build Monado ==="
 cmake --build "$ROOT/build/monado-alvr" --parallel "$(nproc)"
 
+python3 "$MONADO/scripts/write-runtime-build-info.py"
+
 echo "REBUILD OK. Restart: bash $MONADO/scripts/monado-service.sh restart"

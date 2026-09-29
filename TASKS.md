@@ -1,3 +1,11 @@
+> **Streaming regression (Codex, September 28 late evening):** fixed misleading control health and
+> global ADB shutdown in ALVR WiredConnection teardown. Added timestamped stale telemetry,
+> bounded targeted reconnect (never for unauthorized/authorized-but-slow devices), build identity,
+> and paired preencode/encoded diagnostics. Clean builds and focused tests pass. Live runtime stop
+> preserves ADB PID. Quest ADB briefly returned, then disappeared; physical recovery is NOT proven.
+> User ended headset testing: yaw clipping remains unresolved, no FOV/size changes. See
+> docs/streaming-regression-2026-09-28.md. Preserve all prior Loft/tablet/audio work.
+
 > **Device-card parity (Codex, 2026-09-28):** ALVR-only/disconnected headset cards use
 > the same six fields, assistant section and action layout as tablets. Unknown values
 > shown as dash, unavailable actions disabled. Tested disconnected Quest + connected

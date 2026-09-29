@@ -227,16 +227,16 @@ alvr_target_present(comp_target *ct,
 	}
 
 	static uint64_t intel_xr_views_frames = 0;
-	if (intel_xr_views_frames++ % 3600 == 0) {
+	if (intel_xr_views_frames++ % 360 == 0) {
 		for (int e = 0; e < 2; e++) {
 			const xrt_pose &xp = frameParms.poses[e];
 			const xrt_fov &xf = frameParms.fovs[e];
 			std::fprintf(stderr,
 			             "[INTEL-XR-VIEWS] FRAME_VIEW eye=%d pos=(%.4f,%.4f,%.4f) rot=(%.4f,%.4f,%.4f,%.4f) "
-			             "fov(l,r,u,d)=(%.4f,%.4f,%.4f,%.4f)\n",
+			             "fov(l,r,u,d)=(%.4f,%.4f,%.4f,%.4f) target=%ux%u packed_eye_extent=%ux%u\n",
 			             e, xp.position.x, xp.position.y, xp.position.z, xp.orientation.x, xp.orientation.y,
 			             xp.orientation.z, xp.orientation.w, xf.angle_left, xf.angle_right, xf.angle_up,
-			             xf.angle_down);
+			             xf.angle_down, ct->width, ct->height, ct->width / 2, ct->height);
 		}
 	}
 

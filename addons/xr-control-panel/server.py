@@ -12,6 +12,7 @@ Config: $XR_PANEL_CONFIG or ~/.config/xr-control-panel/config.json
 from __future__ import annotations
 
 import json
+import hashlib
 import io
 import tarfile
 import gzip
@@ -191,6 +192,79 @@ INFO_CMD = (
 _cache_lock = threading.Lock()
 _cache: dict = {"time": 0.0, "data": None}
 recordings: dict[str, set] = {}
+_telemetry = {}
+_recovery = {}
+_health_lock = threading.RLock()
+_snapshot_lock = threading.Lock()
+PANEL_BUILD = {"source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
+try:
+    PANEL_BUILD.update(json.loads((HERE / "build-info.json").read_text()))
+except (OSError, ValueError):
+    pass
+
+
+def control_health(h):
+    """Transport/session reports cannot establish ADB or actual display health."""
+    now = time.time()
+    with _health_lock:
+        serial = h["serial"]
+        fresh = h.get("telemetry_ok", False) and h.get("state") == "device"
+        fields = ("battery", "charging", "awake", "client_installed", "client_running", "is_quest", "is_tablet", "model")
+        if fresh:
+            _telemetry[serial] = {"observed_at": now, **{k: h[k] for k in fields if k in h}}
+            _recovery.pop(serial, None)
+        previous = _telemetry.get(serial, {})
+        if not fresh:
+            for k in fields:
+                if k in previous:
+                    h[k] = previous[k]
+        observed = previous.get("observed_at")
+        h["telemetry"] = {"state": "fresh" if fresh else "stale" if observed else "unavailable",
+                          "observed_at": observed, "age_seconds": max(0, now-observed) if observed else None}
+        streaming = any(a.get("state") == "Streaming" for a in h.get("alvr", []))
+        recovery = _recovery.get(serial, {})
+        control = "healthy" if fresh else "unauthorized" if h["state"] == "unauthorized" else "reconnecting" if recovery.get("active") else "degraded"
+        h["health"] = {"video": "streaming reported" if streaming else "not streaming",
+                       "xr_session": "client connected; presentation unverified" if streaming else "unavailable",
+                       "control": control,
+                       "summary": ("Streaming / " if streaming else "") + ("Healthy" if fresh else "Control reconnecting" if control == "reconnecting" else "Degraded"),
+                       "recovery_attempts": recovery.get("attempts", 0)}
+    return h
+
+
+def recover_controls_once():
+    # Never kill the shared ADB server or reconnect an unauthorized device.
+    data = headsets_snapshot(0)
+    for h in data["headsets"]:
+        if h["state"] in ("device", "unauthorized") or h["health"]["control"] == "healthy":
+            continue
+        serial = h["serial"]
+        if not SERIAL_RE.fullmatch(serial) or not h.get("is_quest"):
+            continue
+        with _health_lock:
+            r = _recovery.setdefault(serial, {"attempts": 0, "last": 0})
+            if time.time() - r["last"] < min(300, 30 * 2 ** min(r["attempts"], 4)):
+                continue
+            r.update(last=time.time(), attempts=r["attempts"] + 1, active=True)
+        try:
+            adb("-s", serial, "reconnect", timeout=5)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired):
+            pass
+        finally:
+            with _health_lock:
+                r["active"] = False
+    # A new successful poll repopulates all values; failure retains timestamped values.
+    headsets_snapshot(0)
+
+
+def control_health_worker():
+    while True:
+        try:
+            recover_controls_once()
+        except Exception as e:
+            print(f"[panel] control health poll: {type(e).__name__}", flush=True)
+        time.sleep(5)
+
 
 
 def valid_ipv6_addresses(text):
@@ -209,9 +283,16 @@ def headset_info(dev: dict) -> dict:
     info = dict(dev)
     if dev["state"] != "device":
         return info
-    out = adb("-s", dev["serial"], "shell", INFO_CMD.format(pkg=CFG["client_package"]), timeout=15).stdout
+    try:
+        result = adb("-s", dev["serial"], "shell", INFO_CMD.format(pkg=CFG["client_package"]), timeout=15)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        return dict(info, telemetry_ok=False)
+    if result.returncode:
+        return dict(info, telemetry_ok=False)
+    out = result.stdout
     kv = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
     info.update({
+        "telemetry_ok": kv.get("BATTERY", "").isdigit() and bool(kv.get("WAKE")) and "CLIENT" in kv and "PID" in kv,
         "model": kv.get("MODEL") or dev["model"],
         "battery": int(kv["BATTERY"]) if kv.get("BATTERY", "").isdigit() else None,
         "charging": kv.get("CHARGING") in ("2", "5"),  # BatteryManager: charging / full
@@ -260,6 +341,7 @@ def add_streaming_headsets(headsets, clients):
         existing = next((h for h in headsets if h["serial"] == serial), None)
         entry = {"name": name, "state": c.get("connection_state"), "trusted": c.get("trusted")}
         if existing is not None:
+            existing.setdefault("is_quest", "quest" in c.get("display_name", "").lower())
             existing.setdefault("alvr", []).append(entry)
             continue
         ipv4, ipv6 = None, []
@@ -278,10 +360,19 @@ def add_streaming_headsets(headsets, clients):
 
 
 def headsets_snapshot(max_age: float = 2.0) -> dict:
+    with _snapshot_lock:
+        return _headsets_snapshot(max_age)
+
+
+def _headsets_snapshot(max_age: float = 2.0) -> dict:
     with _cache_lock:
         if _cache["data"] is not None and time.time() - _cache["time"] < max_age:
             return _cache["data"]
-    headsets = [headset_info(d) for d in list_adb_devices()]
+    try:
+        devices = list_adb_devices()
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        devices = []
+    headsets = [headset_info(d) for d in devices]
     clients = alvr_clients()
     for h in headsets:  # match ALVR connection entries by IP / wired transport
         h["alvr"] = []
@@ -292,7 +383,13 @@ def headsets_snapshot(max_age: float = 2.0) -> dict:
                     name == "client.wired" and h.get("transport") == "usb" and h.get("client_running")):
                 h["alvr"].append({"name": name, "state": c.get("connection_state"), "trusted": c.get("trusted")})
     add_streaming_headsets(headsets, clients)
-    data = {"adb": ADB is not None, "headsets": headsets, "alvr": clients}
+    with _health_lock:
+        for serial, previous in _telemetry.items():
+            if not any(h["serial"] == serial for h in headsets):
+                headsets.append({"serial": serial, "state": "disconnected", "alvr": [],
+                                 "model": previous.get("model"), "is_quest": previous.get("is_quest", False),
+                                 "is_tablet": previous.get("is_tablet", False)})
+    data = {"adb": ADB is not None, "headsets": [control_health(h) for h in headsets], "alvr": clients}
     with _cache_lock:
         _cache.update(time=time.time(), data=data)
     return data
@@ -674,11 +771,31 @@ def headset_apps(serial: str) -> dict:
 
 
 # ---------------------------------------------------------------- runtime features
+_runtime_build_cache = {}
+
+
+def runtime_build_info(root):
+    try:
+        manifest = root / "build/monado-alvr/build-info.json"
+        pid = subprocess.run(["systemctl", "--user", "show", "intel-xr-monado", "--property=MainPID", "--value"],
+                             capture_output=True, text=True, timeout=2).stdout.strip()
+        key = (pid, manifest.stat().st_mtime_ns)
+        if _runtime_build_cache.get("key") != key:
+            info = json.loads(manifest.read_text())
+            actual = hashlib.sha256(Path(f"/proc/{int(pid)}/exe").read_bytes()).hexdigest()
+            info["running_binary_matches"] = actual == info.get("binary_sha256")
+            _runtime_build_cache.update(key=key, data=info)
+        return _runtime_build_cache["data"]
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return {"running_binary_matches": False, "state": "unverified"}
+
+
 def status() -> dict:
     root = runtime_root()
-    st = {"panel": "ok", "adb": ADB is not None, "runtime": {"installed": root is not None}}
+    st = {"build": PANEL_BUILD, "panel": "ok", "adb": ADB is not None, "runtime": {"installed": root is not None}}
     if root is not None:
         st["runtime"]["service"] = systemd_state("intel-xr-monado.service")
+        st["runtime"]["build"] = runtime_build_info(root)
         try:
             alvr("/api/ping")
             st["runtime"]["api"] = "ready"
@@ -1907,6 +2024,7 @@ def main():
     bind = server.server_address[0]
     print(f"XR Control Panel on http://{url_host(bind)}:{CFG['port']}/ "
           f"(runtime: {runtime_root() or 'not configured'}, adb: {ADB or 'missing'})", flush=True)
+    threading.Thread(target=control_health_worker, daemon=True, name="control-health").start()
     threading.Thread(target=auto_pair_usb_worker, daemon=True, name="usb-pairing").start()
     threading.Thread(target=gpu_screen_worker, daemon=True, name="gpu-screen-review").start()
     start_https()

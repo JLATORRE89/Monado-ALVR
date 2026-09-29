@@ -47,6 +47,18 @@ install -m 0644 "$SRC/../xr-downloader/"{xr_downloader.py,README.md,xr-downloade
 install -m 0644 "$SRC/android/labels.jar" "$PREFIX/android/"
 install -m 0644 "$SRC/README.md" "$PREFIX/"
 
+# Stamp the files being installed; checkout HEAD alone is not a build identity.
+"$PYTHON" - "$SRC" "$PREFIX" <<'BUILDINFO'
+import hashlib, json, subprocess, sys, time
+from pathlib import Path
+src, dst = map(Path, sys.argv[1:])
+def git(*args):
+    return subprocess.check_output(["git", "-C", str(src), *args], text=True).strip()
+info = {"commit": git("rev-parse", "HEAD"), "dirty": bool(git("status", "--porcelain")),
+        "installed_at": time.time(), "source_sha256": hashlib.sha256((dst / "server.py").read_bytes()).hexdigest()}
+(dst / "build-info.json").write_text(json.dumps(info, indent=2) + "\n")
+BUILDINFO
+
 # Create or update the config (only the options given on the command line change).
 "$PYTHON" - "$CONFIG" "$RUNTIME_ROOT" "$PORT" "$BIND" <<'PY'
 import json, sys
