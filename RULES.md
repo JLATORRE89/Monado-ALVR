@@ -105,3 +105,20 @@
 
 ## Diagnostic hygiene
 Rate-limit noisy probes. Once a boundary is proven, reduce/remove its temporary logging. Record evidence in `TASKS.md`.
+
+## Lessons 2026-09-29 (re-audit)
+- A reconstruction audit is only valid with `INTEL_XR_LOG_DIR=/ai/intel-xr-prototype/logs`
+  (step 6 bakes the log dir into Encoder.cpp) and a sibling `src/alvr-monado` in the scratch root
+  (`src/alvr_binding.h` is a relative symlink to its generated header).
+- A fresh ALVR worktree needs `git submodule update --init` (openvr) before `cargo build`.
+- `scripts/xr-env.sh` resets `INTEL_XR_ROOT` from `paths.root`, so scripts that source it
+  (`build-xr-client.sh`) always act on the real tree: never use them for scratch builds.
+- Every new alvr_render change needs a helper in the orchestrator in the same commit; a
+  snapshot commit on `intel-xr-companion` alone is not reproducible. Re-run the audit after.
+- Keep commits single-purpose: a "fix(panel)" commit that also adds a companion step or runtime
+  change (825b21eb7) has to be split before it can be ported.
+- Without Resizable BAR, anything that maps VRAM for the CPU (a second encoder, VAAPI readback,
+  another Vulkan device) competes with the video encoder for ~256 MB; check
+  `sudo cat /sys/kernel/debug/dri/1/i915_gem_objects` (visible_avail) when adding GPU work.
+- Two agents share the tree: check `git status` / the handoff before building or deploying
+  anything in a repo another agent may be editing.

@@ -75,3 +75,49 @@ probes, per-frame client `INTEL-XR-VIDEO` logging (floods logcat).
 ## alvr_render (local branch `intel-xr-companion`, not pushable)
 153db90, 4814e5f: snapshots of the companion tree; the source of truth is the Monado-ALVR
 helpers (byte-identical reconstruction verified, tree 030ce494).
+
+---
+
+# Update 2026-09-29 (commits since 094d417e4 / 830a55bb / 4814e5f)
+
+History still intact; nothing squashed, rebased or merged. Same categories as above.
+
+## Monado-ALVR `xr-cleanup` (56 commits, 094d417e4..10e4637d6)
+
+| Class | Commits | Notes / dependencies |
+|---|---|---|
+| P: controllers (W14) | 34d274626 → d2aa0b290 | Touch poses/buttons/haptics; per-hand aim pitch. fcf5a05bd lowers the aim ray too (mixed with a Loft hook). |
+| P: compositor pacing | 2abc498fa | HMD frame interval from ALVR's refresh rate (was fixed 90 Hz: ~36 late frames/s at 72 Hz). |
+| P: companion step 12 (ALVR ABI) | 6df4e0fe6 (helper part) | no-op with the current header; needed for the upstream-master merge. |
+| P: companion step 14 (VBV) | b8792ae52 | `rc_buffer_size` = INTEL_XR_VBV_FRAMES frames; step 15 uses its `apply_rate_params`. |
+| P: companion step 15 (re-open) | f36dc86b6 | depends on steps 7 and 14; drain + free before open (SIGBUS root cause: no ReBAR). Contains a diagnostic hook (`intel-xr-encoder-test-bps` request file) to gate before main. |
+| P: multi-instance runtime (W15) | af42260a8 (+ step 11 helper), 02382032c, a0e4a5a3a | pairs with ALVR 2d4cba1d. |
+| F: headset view snapshot (step 13) | c74f01141 | used by the panel's Wi-Fi capture. |
+| F: XR Control Panel | 1338db6c0, 00c6f15ab, c6fd10717, 6df4e0fe6 (panel part), 9581b7bd0, 8c1b1b134, c24e0dfef, 52f91befa, 703101c94, 280cd5fab, a7985a89c, 5eafd8ca4, db181006c, af61107c1, 44608a342, 65b10efe3, 1f7b92404, 15be55ab9, 098913668, 7d64f185a, 9cf9e28c4, f40065d54, 9c72c0557, 0e925d65b, d570af8dd, 01c7a399c, 8e3fafa7f, d0e52f206, 24b7d78ee, b0c9f8c6d, f54a6db95, e2e67ba8e, 04cd44a67, 506ef6ade | add-on only; the runtime never depends on it. The web proxy (d570af8dd) is off by default. |
+| F: Loft integration | fcf5a05bd (exit hook), c6fd10717 (menu/app launch) | Loft itself lives in JLATORRE89/loft. |
+| D | 10e4637d6, companion step 16 in 825b21eb7 (`apply-alvr-render-boundary-capture.py` + `.patch`) | paired pre-encode/encoded IDR capture; opt-in by request file. |
+| P: display-time head prediction (step 17) | 86dbaee6a | pairs with ALVR 22ed0eed; audited after this table was written. |
+| **Mixed (split before porting)** | 825b21eb7 | "fix(panel)" also adds companion step 16, `write-runtime-build-info.py`, a `target_alvr_comp.cpp` change and a regression doc. |
+| Doc | 182020ebe, 8203f3bd3, ab03b0369, ad2912657, 84900ea2f, c87c1c28e, 4e2cd8ae2, a91a3b9c6, 183803c66, c2b0d04fa | TASKS.md / release notes. |
+
+## ALVR `intel-xr-client-diag` (2 commits since 830a55bb)
+| Class | Commit |
+|---|---|
+| F: several runtime instances on one PC | 2d4cba1d (pairs with Monado-ALVR af42260a8) |
+| P: wired teardown keeps the shared ADB server | 7d399a2b |
+| P: display-time head prediction C API | 22ed0eed (pairs with Monado-ALVR 86dbaee6a, companion step 17) |
+`intel-xr-master-merge` (d28353c0, worktree `src/alvr-merge`) is an untested integration branch
+and tracks the fork's `master`: do not push it there or merge it.
+
+## alvr_render (local `intel-xr-companion`, not pushable)
+0f89e4f (step 11), 841717b (13), 904fe27 (14), c36cdf9 (15), 713e31b + b0254c7 (step 16
+diagnostic), 02b38dd (17) are snapshots only. Source of truth: the 17 helpers; a clean
+reconstruction from ecb2812 gives tree dcb38466 == 02b38dd^{tree} (TASKS.md, CONSOLIDATION RESULT
+2026-09-29).
+
+## Must NOT go to main as-is (additions)
+- Diagnostic request files: `intel-xr-encoder-test-bps` (step 15), `intel-xr-boundary-request`
+  (step 16), `intel-xr-view-request` is a feature (panel capture) but should be documented.
+- `config/xr-build.json` still carries workstation values (`network.quest_ip`,
+  `alvr.legacy_protocol_test`); `android.usb_stay_awake` is now a workstation override only
+  (`config/xr-build.local.json`, also where the panel saves it).

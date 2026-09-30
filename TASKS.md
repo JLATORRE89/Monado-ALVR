@@ -1,3 +1,101 @@
+## CONSOLIDATION RESULT (2026-09-29)
+
+**Reproducibility: PASS.** From committed files only, the working video stack is reconstructed
+and builds cleanly. Audited at Monado-ALVR `xr-cleanup` 86dbaee6a, ALVR `intel-xr-client-diag`
+22ed0eed, alvr_render pinned ecb2812 (+17 helpers), in scratch worktrees; the working trees were
+not touched. (First pass at 10e4637d6 / 7d399a2b / 16 helpers also passed; re-run after Codex
+landed display-time head prediction, step 17.)
+
+**Companion reconstruction (alvr_render):**
+```
+git -C src/alvr_render worktree add --detach <S>/src/alvr_render ecb281249b6900ec6ceb6e0570be5100533c706a
+git -C src/alvr-monado worktree add --detach <S>/src/alvr-monado HEAD      # alvr_binding.h links ../../alvr-monado/build/...
+INTEL_XR_ROOT=<S> INTEL_XR_LOG_DIR=/ai/intel-xr-prototype/logs \
+    bash <S>/src/Monado-ALVR/scripts/apply-alvr-render-companion.sh       # committed helpers (17); COMPANION OK
+git -C <S>/src/alvr_render add -A && git -C <S>/src/alvr_render write-tree  # compare with the working tree
+```
+(`<S>/src/Monado-ALVR` = `git worktree add --detach` of Monado-ALVR HEAD, so only committed
+helpers run.) Result: reconstructed tree **dcb38466c0fb016f336c981f5b3a8912f94f7168 == working
+alvr_render 02b38dd^{tree}** (first pass: 47ae5ca4 == b0254c7^{tree}); `diff -r --no-dereference -x .git` empty; a second run patches nothing.
+`INTEL_XR_LOG_DIR` matters: step 6 (h264 dump) bakes `<log dir>/INTEL_XR_DUMP_H264` into
+Encoder.cpp, so without it the only difference is that diagnostic path (3 lines). The working
+tree was clean (0 changes) when recorded.
+
+**Clean builds (fresh worktrees and target/build dirs; logs in the audit scratch):**
+| Component | Result |
+|---|---|
+| ALVR server core: `git submodule update --init` (openvr), `cargo build -p alvr_server_core`, `cargo xtask build-server-lib` | rc=0, 51 s fresh (7d399a2b), then 22ed0eed; 1 warning, upstream dead code `TrackingManager::server_to_client_pose` (ba48a4d0, not ours). target == build/ copy (sha256 a8c465b7…). Generated header identical to the deployed one. |
+| Monado, fresh configure (same options as `build-intel-xr.sh`) against the reconstructed alvr_render + fresh server core | rc=0, 57 s; 2 warnings, both GCC `-Wmaybe-uninitialized` in system Eigen headers (upstream `t_imu.cpp`); 0 from project/companion code. Rebuilt at 86dbaee6a: rc=0, 0 new warnings. |
+| Markers in the fresh `monado-service` | alvr_get_head_motion_for_display (step 17), ENCODER_REOPEN, INTEL-XR-BOUNDARY, NOMINAL_FRAME_INTERVAL, REQUEST_IDR_CONSUMED, VBV_FRAMES, STREAM_EXTENT, VAAPI_INPUT, ENCODER_INIT_BITRATE, intel-xr-view-request, ALVR_CONFIG_DIR, `CREATED left+right` (controllers) |
+| Quest client: OpenXR loader from pinned `release-1.1.53`, `cargo xtask build-client --release` | rc=0, 57 s, 0 warnings; APK sha256 13266d09…; VIDEO_SEND_STATS / STREAM_RECV_STATS / APP_EXIT / finish_activity present (22ed0eed changes only server_core, so the client source is unchanged) |
+Two clean-checkout requirements found: the ALVR `openvr` submodule must be initialised, and
+`scripts/build-xr-client.sh` cannot target a scratch tree (`xr-env.sh` resets `INTEL_XR_ROOT`
+from `paths.root`), so the audit ran its steps by hand.
+Live deployed server core: target == deployed (sha256 9f1ad3ac…) and the ALVR tree is clean, so
+the deployed library is the committed 22ed0eed build.
+
+**SIGBUS review: no lifetime bug; fault handler kept.** Root cause found 2026-09-28: no
+Resizable BAR (256 MB CPU-visible VRAM); two encoders at once exhausted it. Step 15 drains and
+frees the old encoder before opening the new one (91 re-opens / 0 faults under gdb; 18 on the
+live runtime, not while streaming). Re-checked: `SetParams`, `MaybeReopenEncoder` and
+`PushFrame` run in order on the encode thread (Encoder.cpp 416-428), so `encoder_ctx` being NULL
+for a moment inside the re-open is never observed; the event thread only calls the
+mutex-guarded `IDRScheduler::RequestIDR`; each new context takes its own `hw_frames_ctx` ref;
+`mapped_frame` and the filter graph are not replaced; neither the new context nor the fallback
+leaks. Residual: shutdown ordering (destructor leaks by design), step 16's
+`av_hwframe_transfer_data` also maps VRAM (request-only). Real fix: BIOS Above 4G + ReBAR.
+
+**Configuration:** `android.usb_stay_awake` stays `false` in the repo; the workstation's `true`
+lives in gitignored `config/xr-build.local.json`, and the panel now saves that setting there
+(before, it rewrote the tracked file). Layers: repo defaults `config/xr-build.json` /
+workstation `config/xr-build.local.json` / ALVR session `~/.config/alvr/session.json` /
+diagnostics = env vars and request files (below) / panel `~/.config/xr-control-panel/`.
+
+**Commits:** docs/commit-classification.md (update 2026-09-29: all 57 new Monado-ALVR commits, 3
+ALVR, 7 companion snapshots classified; mixed commit 825b21eb7 flagged), panel settings fix,
+this section, AGENTS.md / RULES.md. **Branches pushed:** see "Push" below.
+
+**Remaining diagnostics** (gate/remove before main): INTEL-XR-* stderr markers (step 2),
+per-frame ENCODER_DYNAMIC_PARAMS, h264 dump (step 6), `intel-xr-encoder-test-bps` (step 15),
+boundary capture (step 16), `[INTEL-XR-VIEWS]`, client INTEL-XR-VIDEO / STREAM_RECV_STATS,
+server VIDEO_SEND_STATS, fault handler (keep).
+
+**Next operator command:** replug the Quest's USB cable (adb lost it on 09-28), then
+`adb shell am broadcast -a com.oculus.vrpowermanager.automation_disable`, put the headset on,
+open the client and run `echo 40000000 > /run/user/1000/intel-xr-encoder-test-bps` a few times
+while streaming (journal: `ENCODER_REOPEN`, no `[INTEL-XR-FAULT]`).
+Then look left/right quickly: the yaw-edge clipping should be gone with step 17 (Codex).
+**Next engineering task:** gate the diagnostic request files (steps 15 test-bps, 16 boundary)
+and per-frame logs behind one `INTEL_XR_DIAG` switch as new idempotent helpers, re-run this
+audit; then Loft work (modular, no runtime coupling).
+
+## CURRENT STATUS (2026-09-29)
+
+- **Known-good baseline:** Monado compositor (paced at ALVR's 72 Hz) → alvr_render (Vulkan) →
+  Intel Arc VAAPI **HEVC 8-bit** (Main10 crashed; reverted) → ALVR server core → USB (ADB TCP) or
+  Wi-Fi (UDP) → Quest MediaCodec. Controllers (poses, buttons, haptics), several headsets per PC
+  (one runtime instance each, presence, voice), Loft 3D lobby, tablet flat client via the panel.
+- **Branches:** Monado-ALVR `xr-cleanup` (origin), ALVR `intel-xr-client-diag` (remote `jason`),
+  loft `main`, alvr_render local `intel-xr-companion` (not pushable), ALVR
+  `intel-xr-master-merge` (untested integration, do not push to master).
+- **Companion:** pinned ecb2812; `scripts/apply-alvr-render-companion.sh` order: 1 base-compat,
+  2 server-video-instrumentation, 3 request-idr, 4 encoder-bitrate, 5 intel-map-output, 6 h264-dump
+  (diag), 7 dynamic-bitrate, 8 frame-timestamps, 9 idr-dedup (+ fault handler), 10 stream-extent,
+  11 instance, 12 alvr-abi, 13 view-snapshot, 14 vbv, 15 reopen-drain, 16 boundary-capture (diag),
+  17 head-prediction. Known-good tree dcb38466 (snapshot 02b38dd). Rebuild with `scripts/rebuild-runtime.sh`; never
+  `prepare-companions.sh` / `build-intel-xr.sh` on a working tree.
+- **USB (known good):** session codec HEVC 8-bit, Adaptive 3–80 Mbit/s, CBR, preset Speed,
+  foveation off, wired client `alvr.client.monado`, autolaunch off (open the client by hand);
+  ADB forward 9943/9944; wired queue 16 frames and max send buffer (in code).
+- **Wi-Fi (known good):** same session; UDP; `server_send_buffer_bytes=131072`,
+  `max_queued_server_video_frames=3`, `avoid_video_glitching=true`; AIMD + pacing; 2.4 GHz
+  RT5372 USB adapter (192.168.86.0/24); firewall allows ALVR 9943/9944 udp and the panel 8083/8483.
+- **Unresolved risks:** no ReBAR (visible VRAM 0-11 MiB under load; each tablet renderer ~9 MiB);
+  step 15 not yet re-verified while streaming; yaw-edge clipping fix (step 17) not yet seen in the
+  headset; Quest adb lost since 09-28 (needs a replug); test-only legacy protocol still on the
+  service.
+- **Next human test / next development task:** see CONSOLIDATION RESULT above.
+
 > **Yaw correction (Codex, September 29):** Monado head tracking now uses ALVR's measured,
 > capped display-time prediction, matching its OpenVR HMD path; returned velocities are zero
 > to prevent double extrapolation. No FOV/size/bitrate changes. Two prediction regression tests,

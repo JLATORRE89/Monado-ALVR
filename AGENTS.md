@@ -13,6 +13,11 @@ Repositories:
   reconstructed by `scripts/apply-alvr-render-companion.sh` (local snapshot branch
   `intel-xr-companion`, not pushable)
 - `src/loft` — `JLATORRE89/loft`, branch `main` (demo app; optional)
+- `src/alvr-merge` — worktree of the ALVR fork on `intel-xr-master-merge` (untested upstream
+  merge; tracks the fork's `master`: never push it there)
+
+Two agents (Claude, Codex) share this tree: read and update
+`/ai/intel-xr-prototype/LOFT-CODEX-HANDOFF.md` (newest first) and claim a repo before writing.
 
 Artifacts:
 - Monado: `build/monado-alvr`
@@ -21,23 +26,29 @@ Artifacts:
 - Logs: `logs/`
 
 ## Immediate objective
-Consolidation is done (see `CONSOLIDATION RESULT` in `TASKS.md`). Next: Quest controllers
-(`docs/controllers.md`, W14), then the Loft. Preserve the known-good video path; start from the
-top of `TASKS.md`.
+Consolidation re-verified 2026-09-29 (see `CONSOLIDATION RESULT` at the top of `TASKS.md`):
+the companion reconstructs byte-identically and everything builds from committed files. Keep it
+that way: every alvr_render change is a new idempotent helper added to
+`scripts/apply-alvr-render-companion.sh`, then re-run the audit. Next: live re-open check while
+streaming and a headset check of the yaw-edge fix (step 17), then the Loft (modular; never couple the
+runtime/transport to it).
 
 ## Proven state
-End-to-end video is confirmed in the headset (red/blue checkerboard) over Wi-Fi at 10 Mbit/s and
-over USB at 30 Mbit/s. alvr_render: RequestIDR routed and coalesced in IDRScheduler; VAAPI encodes
-the renderer's real output on Intel; rate control follows ALVR (runtime changes via encoder
-re-open); frames carry tracking timestamps so ALVR statistics/Adaptive work. ALVR server core:
-wired (USB) mode picks the device with the client and falls back to Wi-Fi; send-path congestion
-cuts bitrate (AIMD); EINTR is retried; IDR requests are de-duplicated. alvr_render changes live
-as idempotent `scripts/apply-*.py` helpers (order in TASKS.md) because alvr_render is a pinned
-detached checkout. Live ALVR session settings differ from defaults; see TASKS.md.
+End-to-end video in the headset over USB and Wi-Fi: Monado compositor (paced at ALVR's refresh
+rate, 72 Hz) → alvr_render → Intel VAAPI HEVC 8-bit → ALVR → Quest MediaCodec. alvr_render:
+RequestIDR routed and coalesced in IDRScheduler; VAAPI encodes the renderer's real output on
+Intel; rate control follows ALVR, runtime changes re-open the encoder after draining and freeing
+the old one (no Resizable BAR on this Arc: two encoders at once exhausted CPU-visible VRAM);
+frames carry tracking timestamps. ALVR server core: wired mode with Wi-Fi fallback, AIMD
+congestion response, UDP pacing, bounded queues, EINTR retry, IDR de-dup. Quest Touch
+controllers (poses, buttons, haptics). Several headsets per PC (one runtime instance each).
+alvr_render changes live as 17 idempotent `scripts/apply-*.py` helpers because alvr_render is a
+pinned checkout (order in TASKS.md).
 
 Config layers: repo defaults `config/xr-build.json`; workstation overrides
-`config/xr-build.local.json` (gitignored); ALVR session `~/.config/alvr/session.json`;
-diagnostic env vars on the service. Commit map: `docs/commit-classification.md`.
+`config/xr-build.local.json` (gitignored; the panel saves `android.usb_stay_awake` there); ALVR
+session `~/.config/alvr/session.json`; diagnostics are env vars / request files on the service.
+Commit map: `docs/commit-classification.md`.
 
 ## Add-ons
 `addons/xr-control-panel/` is an optional, separately installed web UI (multi-headset management,
