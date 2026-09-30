@@ -206,6 +206,35 @@ xrt_fov_from_alvr_fov(AlvrFov fov)
 	};
 }
 
+// INTEL-XR: render a margin beyond the headset's field of view. The Quest reprojects each frame to
+// the head pose at display time; with ~70 ms from tracking sample to photon, a frame rendered to
+// exactly the display FOV shows its edges (the view "glitches" at the sides) during head turns.
+// Every frame carries the FOV it was rendered with (frame_params.fovs -> alvr_send_video_nal) and
+// the client submits it as the layer FOV, so the Quest places the wider image correctly and the
+// extra pixels fill those edges. Each edge's tangent grows by INTEL_XR_FOV_MARGIN (default 0.10,
+// 0 disables, at most 0.5). The stream size is unchanged, so detail per degree drops accordingly.
+static float
+intel_xr_fov_margin()
+{
+	static float const margin = [] {
+		const char *v = std::getenv("INTEL_XR_FOV_MARGIN");
+		float m = v != nullptr ? std::strtof(v, nullptr) : 0.10f;
+		if (!(m >= 0.f && m <= 0.5f)) {
+			m = 0.10f;
+		}
+		return m;
+	}();
+	return margin;
+}
+
+static xrt_fov
+intel_xr_widen_fov(xrt_fov fov)
+{
+	float const scale = 1.f + intel_xr_fov_margin();
+	auto widen = [scale](float angle) { return std::atan(std::tan(angle) * scale); };
+	return xrt_fov{widen(fov.angle_left), widen(fov.angle_right), widen(fov.angle_up), widen(fov.angle_down)};
+}
+
 xrt_space_relation
 xrt_rel_from_alvr_mot(AlvrDeviceMotion amot)
 {
@@ -387,8 +416,11 @@ alvr_hmd_create(void)
 
 		// TODO: If monado internally access it then it's UB (shouldn't really matter tho)
 		auto &fovs = hmd->base.hmd->distortion.fov;
-		fovs[0] = xrt_fov_from_alvr_fov(cfg.left.fov);
-		fovs[1] = xrt_fov_from_alvr_fov(cfg.right.fov);
+		fovs[0] = intel_xr_widen_fov(xrt_fov_from_alvr_fov(cfg.left.fov));
+		fovs[1] = intel_xr_widen_fov(xrt_fov_from_alvr_fov(cfg.right.fov));
+		HMD_INFO(hmd, "[INTEL-XR-VIEWS] RENDER_FOV margin=%.2f eye0 fov(l,r,u,d)=(%.4f,%.4f,%.4f,%.4f)",
+		         intel_xr_fov_margin(), fovs[0].angle_left, fovs[0].angle_right, fovs[0].angle_up,
+		         fovs[0].angle_down);
 	};
 	CallbackManager::get().registerCb<ALVR_EVENT_LOCAL_VIEW_PARAMS>(std::move(viewCb));
 
