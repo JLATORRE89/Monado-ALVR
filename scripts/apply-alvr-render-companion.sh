@@ -28,6 +28,7 @@ HELPERS=(
   apply-alvr-render-reopen-drain.py        # 15 drain before encoder re-open; rate control at refresh rate
   apply-alvr-render-boundary-capture.py    # 16 paired preencode / encoded IDR diagnostics
   apply-alvr-render-head-prediction.py     # 17 measured display-time head prediction
+  apply-alvr-render-encode-pipeline.py     # 18 encode frame N while frame N+1 renders (72 fps, not 36)
 )
 
 for helper in "${HELPERS[@]}"; do
