@@ -95,9 +95,12 @@ audit; then Loft work (modular, no runtime coupling).
   `max_queued_server_video_frames=3`, `avoid_video_glitching=true`; AIMD + pacing; 2.4 GHz
   RT5372 USB adapter (192.168.86.0/24); firewall allows ALVR 9943/9944 udp and the panel 8083/8483.
 - **Unresolved risks:** no ReBAR (visible VRAM 0-11 MiB under load; each tablet renderer ~9 MiB);
-  step 15 not yet re-verified while streaming; yaw-edge clipping fix (step 17) not yet seen in the
-  headset; Quest adb lost since 09-28 (needs a replug); test-only legacy protocol still on the
+  yaw-edge clipping still visible with step 17 (2026-09-29 20:20, worn): head prediction measures
+  ~70 ms motion-to-photon, rendered FOV == headset FOV (no margin), 714 compositor late warnings
+  in 90 s (mostly 8.33 ms); evidence in the handoff; Quest adb lost since 09-28 (needs a replug); test-only legacy protocol still on the
   service.
+- **Step 15 verified live (2026-09-29 20:21):** encoder re-opens at 40 and 80 Mbit/s while the
+  worn headset streamed, no fault.
 - **Next human test / next development task:** see CONSOLIDATION RESULT above.
 
 > **Yaw correction (Codex, September 29):** Monado head tracking now uses ALVR's measured,
