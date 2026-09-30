@@ -137,6 +137,35 @@ def runtime_config_path() -> Path:
     return root / "src/Monado-ALVR/config/xr-build.json"
 
 
+# Settings that are this workstation's choice rather than repository defaults: saved to the
+# gitignored config/xr-build.local.json, which the runtime scripts read after xr-build.json
+# (scripts/quest-usb-awake.sh), so changing them never modifies a tracked file.
+WORKSTATION_KEYS = {"android.usb_stay_awake"}
+
+
+def runtime_local_config_path() -> Path:
+    return runtime_config_path().with_name("xr-build.local.json")
+
+
+def _get_key(cfg: dict, key: str):
+    for bit in key.split("."):
+        cfg = cfg.get(bit) if isinstance(cfg, dict) else None
+    return cfg
+
+
+def _set_key(cfg: dict, key: str, value) -> None:
+    bits = key.split(".")
+    for b in bits[:-1]:
+        cfg = cfg.setdefault(b, {})
+    cfg[bits[-1]] = value
+
+
+def _write_json(path: Path, data: dict) -> None:
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    os.replace(tmp, path)
+
+
 def alvr(path: str, method: str = "GET", data=None, base: str | None = None) -> bytes:
     body = None if data is None else json.dumps(data).encode()
     req = urllib.request.Request((base or CFG["alvr_api"]) + path, data=body, method=method,
@@ -811,12 +840,15 @@ def status() -> dict:
 
 
 def config_values() -> dict:
+    """Effective values: the repository file, with this workstation's overrides on top."""
     cfg = json.loads(runtime_config_path().read_text())
+    local_path = runtime_local_config_path()
+    local = json.loads(local_path.read_text()) if local_path.is_file() else {}
     values = {}
     for key in EDITABLE:
-        cur = cfg
-        for bit in key.split("."):
-            cur = cur.get(bit) if isinstance(cur, dict) else None
+        cur = _get_key(local, key) if key in WORKSTATION_KEYS else None
+        if cur is None:
+            cur = _get_key(cfg, key)
         if cur is not None:
             values[key] = cur
     return values
@@ -849,27 +881,43 @@ def config_restore(key):
         if not isinstance(key, str) or key not in defaults:
             raise ValueError("Select an editable setting with an available default")
         changes = {key: defaults[key]}
-    config_save(changes)
+    # A workstation override is restored by dropping it, so the repository default applies again.
+    local_path = runtime_local_config_path()
+    if local_path.is_file() and WORKSTATION_KEYS & set(changes):
+        local = json.loads(local_path.read_text())
+        for k in WORKSTATION_KEYS & set(changes):
+            bits = k.split(".")
+            parent = _get_key(local, ".".join(bits[:-1])) if len(bits) > 1 else local
+            if isinstance(parent, dict):
+                parent.pop(bits[-1], None)
+        _write_json(local_path, local)
+    config_save({k: v for k, v in changes.items() if k not in WORKSTATION_KEYS})
     return {"message": "Runtime defaults restored. Changes may need a runtime restart."}
 
 
 def config_save(changes: dict) -> None:
-    path = runtime_config_path()
-    cfg = json.loads(path.read_text())
+    """Repository settings go to xr-build.json; WORKSTATION_KEYS to the gitignored local file."""
+    parsed = {}
     for key, val in changes.items():
         if key not in EDITABLE:
             raise ValueError("setting not editable: " + key)
         typ = EDITABLE[key]
-        parsed = (val if isinstance(val, bool) else str(val).lower() in ("1", "true", "yes", "on")) if typ is bool \
+        parsed[key] = (val if isinstance(val, bool) else str(val).lower() in ("1", "true", "yes", "on")) if typ is bool \
             else int(val) if typ is int else str(val)
-        cur = cfg
-        bits = key.split(".")
-        for b in bits[:-1]:
-            cur = cur.setdefault(b, {})
-        cur[bits[-1]] = parsed
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(cfg, indent=2) + "\n")
-    os.replace(tmp, path)
+    repo = {k: v for k, v in parsed.items() if k not in WORKSTATION_KEYS}
+    local = {k: v for k, v in parsed.items() if k in WORKSTATION_KEYS}
+    if repo:
+        path = runtime_config_path()
+        cfg = json.loads(path.read_text())
+        for key, val in repo.items():
+            _set_key(cfg, key, val)
+        _write_json(path, cfg)
+    if local:
+        path = runtime_local_config_path()
+        cfg = json.loads(path.read_text()) if path.is_file() else {}
+        for key, val in local.items():
+            _set_key(cfg, key, val)
+        _write_json(path, cfg)
 
 
 def run_runtime(script: str, *args: str, background: bool = False, log: str | None = None) -> str:
