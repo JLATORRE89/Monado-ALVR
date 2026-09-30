@@ -86,7 +86,8 @@ audit; then Loft work (modular, no runtime coupling).
   2 server-video-instrumentation, 3 request-idr, 4 encoder-bitrate, 5 intel-map-output, 6 h264-dump
   (diag), 7 dynamic-bitrate, 8 frame-timestamps, 9 idr-dedup (+ fault handler), 10 stream-extent,
   11 instance, 12 alvr-abi, 13 view-snapshot, 14 vbv, 15 reopen-drain, 16 boundary-capture (diag),
-  17 head-prediction. Known-good tree dcb38466 (snapshot 02b38dd). Rebuild with `scripts/rebuild-runtime.sh`; never
+  17 head-prediction, 18 encode-pipeline. Known-good tree 918f0593 (snapshot 727567e; 18-step
+  reconstruction re-verified 2026-09-29). Rebuild with `scripts/rebuild-runtime.sh`; never
   `prepare-companions.sh` / `build-intel-xr.sh` on a working tree.
 - **USB (known good):** session codec HEVC 8-bit, Adaptive 3–80 Mbit/s, CBR, preset Speed,
   foveation off, wired client `alvr.client.monado`, autolaunch off (open the client by hand);
@@ -99,6 +100,14 @@ audit; then Loft work (modular, no runtime coupling).
   ~70 ms motion-to-photon, rendered FOV == headset FOV (no margin), 714 compositor late warnings
   in 90 s (mostly 8.33 ms); evidence in the handoff; Quest adb lost since 09-28 (needs a replug); test-only legacy protocol still on the
   service.
+- **Yaw-edge clipping work (Claude, 2026-09-29):** (1) FOV margin 10 % (6913355dd,
+  `INTEL_XR_FOV_MARGIN`): frames now carry the wider FOV; not enough for fast turns alone.
+  (2) Root cause found with bpftrace: `Encoder::present` blocked 16.6 ms per frame (the encode was
+  synchronous inside the compositor's present), so the compositor ran at exactly half the vsync
+  rate: 36 fps streaming (45 idle). Step 18 (b78ca65c0) pipelines the encode (async_depth 2,
+  per-packet views/timestamp by pts): present 7.0 ms, compositor 72-75 fps idle. Headset check
+  pending. The idle "late by 8.33 ms" floods came from calc_frame_pacing with no client (ALVR
+  returns no vsync, so frames are scheduled "now"); `+ 8` / `+ 16` there are nanoseconds, not ms.
 - **Step 15 verified live (2026-09-29 20:21):** encoder re-opens at 40 and 80 Mbit/s while the
   worn headset streamed, no fault.
 - **Next human test / next development task:** see CONSOLIDATION RESULT above.
