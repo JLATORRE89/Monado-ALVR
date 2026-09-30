@@ -53,7 +53,11 @@ diagnostics = env vars and request files (below) / panel `~/.config/xr-control-p
 
 **Commits:** docs/commit-classification.md (update 2026-09-29: all 57 new Monado-ALVR commits, 3
 ALVR, 7 companion snapshots classified; mixed commit 825b21eb7 flagged), panel settings fix,
-this section, AGENTS.md / RULES.md. **Branches pushed:** see "Push" below.
+this section, AGENTS.md / RULES.md (ade920908, 095ec386d). **Branches pushed** (plain
+fast-forward pushes, nothing forced or rewritten): Monado-ALVR `xr-cleanup` 5eafd8ca4..095ec386d
+(+ this note), ALVR `intel-xr-client-diag` 2d4cba1d..22ed0eed, loft `main` 3e8016f..4d2e604.
+Not pushed: alvr_render `intel-xr-companion` (upstream is not ours; the helpers are the source),
+ALVR `intel-xr-master-merge` (untested; tracks the fork's master).
 
 **Remaining diagnostics** (gate/remove before main): INTEL-XR-* stderr markers (step 2),
 per-frame ENCODER_DYNAMIC_PARAMS, h264 dump (step 6), `intel-xr-encoder-test-bps` (step 15),
