@@ -1,3 +1,47 @@
+## OPEN TASKS (2026-10-01) — resume here after the reboot
+
+After a reboot: the runtime service starts by itself; start the Loft with
+`bash scripts/xr-app.sh start loft`. Read the handoff (`/ai/intel-xr-prototype/LOFT-CODEX-HANDOFF.md`)
+first; Claude holds the yaw-clipping claim.
+
+### Yaw-edge clipping on fast head turns (Claude, in progress)
+State: step 17 head prediction (Codex), FOV margin 10 % (6913355dd), step 18 pipelined encode
+(b78ca65c0: compositor 36 -> 72 fps idle; Encoder::present 16.6 -> 7.0 ms). Not yet seen in the headset.
+- [ ] Headset test: stream, turn fast in the Loft; user reports whether edges still show.
+- [ ] Confirm 72 fps while streaming: spacing of `[INTEL-XR-VIEWS] FRAME_VIEW` lines (one per 360
+      frames, ~5 s at 72 fps) and no `[INTEL-XR-FAULT]` in `journalctl --user -u intel-xr-monado`.
+- [ ] If edges remain: try `INTEL_XR_FOV_MARGIN=0.2` (service environment), compare with 0.1 / 0;
+      if the image gets too soft, raise the stream size to compensate.
+- [ ] Measure the ~63-70 ms motion-to-photon breakdown while streaming (`scripts/alvr-stats.py`)
+      and cut the largest part.
+- [ ] Fix `alvr_target_calc_frame_pacing` (target_alvr_comp.cpp): `+ 8` / `+ 16` are nanoseconds
+      (meant ms), and with no client it schedules every frame "now" (idle "late by 8.33 ms" flood).
+- [ ] After any alvr_render change: re-run the reconstruction audit (procedure in CONSOLIDATION
+      RESULT below; 18 steps, tree 918f0593 today), then release the claim in the handoff.
+
+### Platform / runtime
+- [ ] Enable Above 4G Decoding + Re-Size BAR in the BIOS (user; good moment is this reboot). Root
+      cause of the encoder SIGBUS; CPU-visible VRAM is down to 0-11 MiB under load.
+- [ ] Gate diagnostic hooks (request files of steps 15/16, per-frame logs) behind one
+      `INTEL_XR_DIAG` switch as new helpers; re-run the audit.
+- [ ] Before any port to main: split mixed commit 825b21eb7; drop the test-only
+      `ALVR_LEGACY_PROTOCOL_TEST=1` and workstation values (`quest_ip`) from repo files.
+
+### Tablet (SM-X210) client
+- [ ] Voice on the real tablet (accept Chrome's microphone prompt) with a streaming Quest.
+- [ ] Real Xbox controller paired to the tablet (only emulated so far).
+- [ ] Wi-Fi: "Pair tablet for Wi-Fi" (pairing state is "failed"), then add the Loft home-screen
+      icon from `https://192.168.86.151:8483/tablet`.
+- [ ] Each tablet renderer uses ~9 MiB CPU-visible VRAM: re-check after ReBAR.
+
+### Loft (deferred until the above)
+- [ ] Birds outside the windows; NPC facial expressions; NPC walking animation.
+
+### Other
+- [ ] GPU worker: create an Open WebUI connection key (render + storage) (user).
+- [ ] Panel `install.sh` would also add a firewall rule for 192.168.1.0/24 (eno1); already allowed
+      by the eno1 rule, so use `--no-firewall` or accept the redundant rule.
+
 ## CONSOLIDATION RESULT (2026-09-29)
 
 **Reproducibility: PASS.** From committed files only, the working video stack is reconstructed
